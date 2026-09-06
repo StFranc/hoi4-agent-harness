@@ -142,13 +142,6 @@ hoi4-harness doctor
 See [.env.example](.env.example) for every environment variable, and
 [docs/customization.md](docs/customization.md) for the full settings table.
 
-## Fair play
-
-This is about where you point the harness, not about how the agent plays.
-Single-player only: it drives the game the way a person does — reading state,
-pressing keys — and it is not for multiplayer, ranked play, or anything that puts
-an automated player against unwitting humans. No Paradox game files, assets, or
-save data are included or redistributed here. See [docs/fair-play.md](docs/fair-play.md).
 
 ## License
 
