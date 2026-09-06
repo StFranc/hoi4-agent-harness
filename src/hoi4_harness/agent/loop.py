@@ -86,6 +86,7 @@ class AgentLoop:
             guidance=self.config.guidance,
             extra=self.config.system_prompt_extra,
             system_prompt_path=self.config.system_prompt_path,
+            operational_control=self.config.operational_control,
         )
         self.budget = BudgetGuard(self.config.budget)
         self.transcript = Transcript(transcript_path)

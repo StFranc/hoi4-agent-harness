@@ -16,8 +16,11 @@ def test_every_builtin_guidance_pack_loads():
         assert guidance.load(name).strip()
 
 
-def test_no_guidance_leaves_only_the_mechanics():
-    assert build_system(guidance=None) == MECHANICS
+def test_no_guidance_leaves_only_mechanics_and_the_control_split():
+    system = build_system(guidance=None)
+    assert system.startswith(MECHANICS)
+    assert "You command directly" in system      # the control split is never implicit
+    assert len(system) < len(build_system(guidance="doctrine"))
 
 
 def test_unconstrained_guidance_says_nothing_is_off_limits():

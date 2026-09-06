@@ -284,3 +284,72 @@ def get(name: str) -> ActionSpec | None:
 
 def names() -> list[str]:
     return [spec.name for spec in ACTIONS]
+
+# --- hybrid control ---------------------------------------------------------
+# The game already ships a competent operational AI: it moves divisions along a
+# front, reinforces, and reacts to breakthroughs faster and cheaper than any
+# model will. These actions let the agent hand that layer over and command at
+# the level it is actually good at -- who to fight, where it matters, what
+# posture to hold -- instead of pretending to be a corps commander.
+
+AI_DIRECTIVES = ["invade", "protect", "contain", "befriend", "antagonize", "ignore"]
+
+ACTIONS += [
+    ActionSpec(
+        name="delegate_army_to_ai",
+        category="strategy",
+        description=(
+            "Hand an army over to the game's own AI, or take it back. A delegated "
+            "army executes fronts, reinforcement and local decisions on its own; "
+            "you keep setting its posture and objectives."
+        ),
+        parameters=_schema(
+            {
+                "army": {"type": "string", "description": "Army name, or 'all'."},
+                "delegate": {"type": "boolean"},
+            },
+            ["army", "delegate"],
+        ),
+    ),
+    ActionSpec(
+        name="set_ai_posture",
+        category="strategy",
+        description=(
+            "Set how aggressively delegated forces behave. Defensive holds and "
+            "reinforces; offensive presses attacks; balanced is the game default."
+        ),
+        parameters=_schema(
+            {
+                "posture": {"type": "string", "enum": ["defensive", "balanced", "offensive"]},
+                "theater": {"type": "string", "description": "Optional: limit to one theater."},
+            },
+            ["posture"],
+        ),
+    ),
+    ActionSpec(
+        name="set_ai_directive",
+        category="strategy",
+        description=(
+            "Give the AI a standing strategic intent toward a country: who to "
+            "invade, who to protect, who to contain, who to court. Weight is "
+            "relative priority, not a promise."
+        ),
+        requires_confirmation=True,
+        parameters=_schema(
+            {
+                "directive": {"type": "string", "enum": AI_DIRECTIVES},
+                "target": {"type": "string", "description": "Country tag, e.g. GER."},
+                "weight": {"type": "integer", "minimum": 0, "maximum": 500},
+            },
+            ["directive", "target"],
+        ),
+    ),
+    ActionSpec(
+        name="clear_ai_directives",
+        category="strategy",
+        description="Drop every standing directive and return the AI to default behaviour.",
+        parameters=_schema({}, []),
+    ),
+]
+
+BY_NAME = {spec.name: spec for spec in ACTIONS}

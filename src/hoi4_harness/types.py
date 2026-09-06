@@ -116,6 +116,10 @@ class GameState:
     fronts: list[Front] = field(default_factory=list)
     wars: list[War] = field(default_factory=list)
     faction: str | None = None
+    # --- hybrid control: what the native AI has been told to do ---------
+    delegated_armies: list[str] = field(default_factory=list)
+    ai_directives: list[str] = field(default_factory=list)
+    posture: str | None = None
     events: list[GameEvent] = field(default_factory=list)
     unknown_fields: list[str] = field(default_factory=list)
     raw: dict[str, Any] = field(default_factory=dict, repr=False)

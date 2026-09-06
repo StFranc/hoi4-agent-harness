@@ -1,0 +1,28 @@
+# LLM Bridge -- applying and clearing directives.
+#
+# Called from the decisions in common/decisions/llm_bridge_decisions.txt, which
+# is what the harness actually drives. Keeping the logic here means the decision
+# list stays a thin, stable surface for the input driver to click.
+
+llm_bridge_set_posture_defensive = {
+	clr_country_flag = llmb_posture_offensive
+	set_country_flag = llmb_posture_defensive
+	set_variable = { llmb_event_kind = 10 }
+	llm_bridge_emit_event = yes
+}
+
+llm_bridge_set_posture_offensive = {
+	clr_country_flag = llmb_posture_defensive
+	set_country_flag = llmb_posture_offensive
+	set_variable = { llmb_event_kind = 11 }
+	llm_bridge_emit_event = yes
+}
+
+llm_bridge_clear_directives = {
+	clr_country_flag = llmb_directive_invade
+	clr_country_flag = llmb_directive_protect
+	clr_country_flag = llmb_posture_defensive
+	clr_country_flag = llmb_posture_offensive
+	set_variable = { llmb_event_kind = 12 }
+	llm_bridge_emit_event = yes
+}

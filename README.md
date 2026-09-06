@@ -89,6 +89,48 @@ The agent's in-game conduct is not policed. The only structural limits are
 schema validation (a malformed call is a bug, not a strategy), the confirmation
 gate you can switch off, and the budget.
 
+## Two layers of control
+
+The game already ships a competent operational commander: it assigns divisions
+to fronts, plugs holes, pulls reserves, and does it within a tick at full map
+resolution. A model doing that job is slower, dearer and worse. So the harness
+supports a **hybrid** mode where the native AI runs operations and the model
+commands the layer above it — who to invade, what to build toward, which theater
+matters, what posture to hold:
+
+```bash
+HOI4_OPERATIONAL_CONTROL=ai hoi4-harness play --guidance hybrid --live --allow-all
+```
+
+Setting that mode removes the direct-command actions from the tool list (even if
+a whitelist named them), adds `set_ai_directive` / `set_ai_posture` /
+`delegate_army_to_ai`, and tells the model in the system prompt which layer it
+is. Offering both vocabularies at once is the failure case — a direct order and a
+standing directive that disagree produce behaviour attributable to neither.
+
+Whether hybrid actually *plays better* is unanswered and issue-tracked: it needs
+the same scenario run three ways (model-only, AI-only, hybrid) and scored the
+same. See [docs/hybrid-control.md](docs/hybrid-control.md).
+
+## The mod
+
+[`mod/llm_bridge/`](mod/llm_bridge/) is a small HOI4 mod that gives the harness a
+real bridge. The game prints a structured state line into `game.log` every tick
+and the harness tails it — exact numbers, live, for the cost of a file read,
+which is cheaper than parsing a save and cheaper than a vision call. It also
+carries the decisions and `ai_strategy` blocks the hybrid layer pushes intent
+through.
+
+```bash
+export HOI4_LOG_PATH="$HOME/Documents/Paradox Interactive/Hearts of Iron IV/logs/game.log"
+hoi4-harness play --adapter logtail+input --live
+```
+
+The script tokens in it (variables, `on_action` names, `ai_strategy` types) are
+the part that moves between game versions, and Paradox script fails silently — CI
+checks structure, but only the game can tell you a token is real. Details and a
+verification checklist: [docs/mod-bridge.md](docs/mod-bridge.md).
+
 ## How it fits together
 
 ```
@@ -98,8 +140,9 @@ gate you can switch off, and the budget.
 ```
 
 - **[adapters/](src/hoi4_harness/adapters/)** — the bridge to a running game. `mock` (complete),
-  `savegame` (parser done, mapping stubbed), `screen` (capture done, vision call stubbed),
-  `input_driver` (write side, stubbed), `composite` (pair a reader with a writer).
+  `logtail` (complete, needs the mod), `savegame` (parser done, mapping stubbed),
+  `screen` (capture done, vision call stubbed), `input_driver` (write side, stubbed),
+  `composite` (pair a reader with a writer).
 - **[actions/](src/hoi4_harness/actions/)** — the catalog, a dependency-free schema validator, and
   provider-neutral tool specs.
 - **[observation/](src/hoi4_harness/observation/)** — full briefs, deltas, and the rule for choosing.
@@ -114,6 +157,9 @@ gate you can switch off, and the budget.
 | Action catalog + validation | Working, tested (16 actions) |
 | Observation briefs + deltas | Working, tested |
 | Mock adapter | Working, tested, deterministic |
+| Log-tail adapter (reads the mod's telemetry) | Working, tested |
+| Hybrid control vocabulary + mode switch | Working, tested; unproven as strategy |
+| LLM Bridge mod | Skeleton; structure CI-checked, script tokens need verifying in-game |
 | Eval runner + scenarios | Working, tested (2 scenarios) |
 | Guidance packs + profiles | Working, tested (6 packs, 3 example profiles) |
 | Anthropic / OpenAI-compatible providers | Written, not yet run against a live key |

@@ -1,0 +1,47 @@
+# LLM Bridge -- telemetry
+#
+# Emits one structured line per tick into game.log. The harness tails that file.
+#
+# VERIFY BEFORE TRUSTING A RUN: the variable and scope-function tokens below are
+# the part of this mod that moves between HOI4 versions. Check each against
+# common/scripted_effects and the log output of a real game before relying on a
+# number. A token the game does not recognise prints literally, which the parser
+# treats as a missing field (reported as "unknown") rather than as a zero.
+#
+# Bump LLMB_SCHEMA_VERSION whenever the field set changes, and bump
+# SCHEMA_VERSION in hoi4_harness/adapters/logtail.py to match. They are compared
+# at runtime.
+
+llm_bridge_emit_state = {
+	set_variable = { LLMB_SCHEMA_VERSION = 1 }
+
+	# Economy and politics.
+	set_variable = { llmb_pp = political_power }
+	set_variable = { llmb_stab = stability }
+	multiply_variable = { llmb_stab = 100 }
+	set_variable = { llmb_ws = war_support }
+	multiply_variable = { llmb_ws = 100 }
+	set_variable = { llmb_civ = num_of_civilian_factories }
+	set_variable = { llmb_mil = num_of_military_factories }
+	set_variable = { llmb_doc = num_of_naval_factories }
+	set_variable = { llmb_mp = ROOT.manpower }
+
+	log = "LLMB|v[?LLMB_SCHEMA_VERSION]|state|date=[GetDateText]|tag=[ROOT.GetTag]|pp=[?llmb_pp]|stab=[?llmb_stab]|ws=[?llmb_ws]|civ=[?llmb_civ]|mil=[?llmb_mil]|doc=[?llmb_doc]|mp=[?llmb_mp]"
+
+	llm_bridge_emit_army = yes
+}
+
+# Front and army summary. This is the state that does not compress well and the
+# state the hybrid model cares most about, so it gets its own line rather than
+# being crammed into the state line.
+llm_bridge_emit_army = {
+	set_variable = { llmb_divisions = num_divisions }
+	log = "LLMB|v[?LLMB_SCHEMA_VERSION]|army|tag=[ROOT.GetTag]|divisions=[?llmb_divisions]|delegated=[?llmb_ai_delegated_armies]"
+}
+
+# Called from on_actions when something happens that should wake the planner
+# early. `kind` must match a GameEvent kind the harness knows; unknown kinds are
+# passed through as "info" rather than dropped.
+llm_bridge_emit_event = {
+	log = "LLMB|v[?LLMB_SCHEMA_VERSION]|evt|tag=[ROOT.GetTag]|kind=[?llmb_event_kind]|detail=[?llmb_event_detail]"
+}

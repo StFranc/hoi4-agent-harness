@@ -33,6 +33,18 @@ whole harness is exercisable for free.
 Not a simulator. It is shaped like the game, not accurate to it — use it to test
 the loop, never to draw conclusions about strategy.
 
+## logtail — complete, needs the mod
+
+Tails `game.log` and rebuilds `GameState` from the telemetry the
+[LLM Bridge mod](mod-bridge.md) emits. Exact numbers, live, at the cost of a file
+read — the best read path in the repo, and the only one cheap enough to poll
+often.
+
+Read-only, so compose it: `--adapter logtail+input`. It refuses to guess: a
+version mismatch raises, an unexpanded script token is marked unknown rather
+than read as zero, and fields the mod does not emit yet are declared unknown up
+front.
+
 ## savegame — parser done, mapping TODO
 
 Reads the most recent `*.hoi4` autosave. `parse_clausewitz()` handles Paradox's

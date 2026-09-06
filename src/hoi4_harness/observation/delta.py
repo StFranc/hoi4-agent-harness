@@ -84,6 +84,21 @@ def render_delta(previous: GameState, current: GameState) -> str:
                 f"({front.divisions_friendly}v{front.divisions_enemy})"
             )
 
+    if previous.posture != current.posture:
+        lines.append(f"AI posture: {previous.posture or 'default'} -> {current.posture}")
+    if set(previous.ai_directives) != set(current.ai_directives):
+        added = [d for d in current.ai_directives if d not in previous.ai_directives]
+        dropped = [d for d in previous.ai_directives if d not in current.ai_directives]
+        if added:
+            lines.append("New directives: " + "; ".join(added))
+        if dropped:
+            lines.append("Dropped directives: " + "; ".join(dropped))
+    if len(previous.delegated_armies) != len(current.delegated_armies):
+        lines.append(
+            f"Armies under AI control: {len(previous.delegated_armies)} -> "
+            f"{len(current.delegated_armies)}"
+        )
+
     if current.events:
         lines.append("Since last turn:")
         for event in current.events[:6]:

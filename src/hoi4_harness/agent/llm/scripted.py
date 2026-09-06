@@ -18,12 +18,6 @@ import itertools
 from ...actions.registry import ToolSpec
 from .base import LLMClient, LLMResponse, Msg, ToolCall, Usage
 
-_ids = itertools.count(1)
-
-
-def _call(name: str, **arguments) -> ToolCall:
-    return ToolCall(id=f"scripted-{next(_ids)}", name=name, arguments=arguments)
-
 
 class ScriptedClient(LLMClient):
     name = "scripted"
@@ -32,6 +26,13 @@ class ScriptedClient(LLMClient):
         self.script = list(script or [])
         self.model = model
         self.calls: list[tuple[str, list[Msg]]] = []
+        # Per-instance, so two runs of the same scenario produce byte-identical
+        # transcripts. A module-level counter would leak state between runs and
+        # quietly break the determinism the eval runner depends on.
+        self._ids = itertools.count(1)
+
+    def _call(self, name: str, **arguments) -> ToolCall:
+        return ToolCall(id=f"scripted-{next(self._ids)}", name=name, arguments=arguments)
 
     def complete(self, system, messages, tools=None, max_tokens=None) -> LLMResponse:
         self.calls.append((system, list(messages)))
@@ -45,16 +46,16 @@ class ScriptedClient(LLMClient):
         calls: list[ToolCall] = []
 
         if "NONE SELECTED" in brief and "set_national_focus" in available:
-            calls.append(_call("set_national_focus", focus_id="industrial_effort"))
+            calls.append(self._call("set_national_focus", focus_id="industrial_effort"))
         if "SLOT(S) FREE" in brief and "start_research" in available:
-            calls.append(_call("start_research", technology="construction1"))
+            calls.append(self._call("start_research", technology="construction1"))
         if "QUEUE EMPTY" in brief and "queue_construction" in available:
-            calls.append(_call("queue_construction", building="civilian_factory",
+            calls.append(self._call("queue_construction", building="civilian_factory",
                                state="capital", count=2))
         if "IDLE" in brief and "set_production" in available:
-            calls.append(_call("set_production", equipment="infantry_equipment_1", factories=5))
+            calls.append(self._call("set_production", equipment="infantry_equipment_1", factories=5))
         if not calls and "advance_time" in available:
-            calls.append(_call("advance_time", days=7, reason="nothing worth an action this week"))
+            calls.append(self._call("advance_time", days=7, reason="nothing worth an action this week"))
 
         return LLMResponse(
             text="" if calls else "Holding.",

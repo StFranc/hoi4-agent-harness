@@ -153,7 +153,11 @@ class HarnessConfig:
     dry_run: bool = True
     run_dir: Path = Path("runs")
     save_dir: Path | None = None
+    log_path: Path | None = None          # game.log, for the logtail adapter
     window_title: str = "Hearts of Iron IV"
+    # Which layer owns operations. "llm" = the model moves every army;
+    # "ai" = the native AI runs fronts and the model sets intent (hybrid).
+    operational_control: str = "llm"
     country: str = "SWE"
     start_date: str = "1936-01-01"
     seed: int = 1936
@@ -161,6 +165,7 @@ class HarnessConfig:
     @classmethod
     def from_env(cls) -> HarnessConfig:
         save_dir = os.environ.get("HOI4_SAVE_DIR")
+        log_path = os.environ.get("HOI4_LOG_PATH")
         system_prompt_path = os.environ.get("HOI4_SYSTEM_PROMPT")
         return cls(
             adapter=os.environ.get("HOI4_ADAPTER", "mock").strip().lower(),
@@ -181,7 +186,9 @@ class HarnessConfig:
             dry_run=_env_bool("HOI4_DRY_RUN", True),
             run_dir=Path(os.environ.get("HOI4_RUN_DIR", "runs")),
             save_dir=Path(save_dir) if save_dir else None,
+            log_path=Path(log_path) if log_path else None,
             window_title=os.environ.get("HOI4_WINDOW_TITLE", "Hearts of Iron IV"),
+            operational_control=os.environ.get("HOI4_OPERATIONAL_CONTROL", "llm").strip(),
             country=os.environ.get("HOI4_COUNTRY", "SWE"),
             start_date=os.environ.get("HOI4_START_DATE", "1936-01-01"),
             seed=_env_int("HOI4_SEED", 1936),
@@ -227,8 +234,14 @@ class HarnessConfig:
         return self
 
     def allowed_actions(self, adapter_supports: set[str]) -> set[str]:
-        """Intersect adapter capability with the operator's whitelist/blacklist."""
-        allowed = set(adapter_supports)
+        """Adapter capability, narrowed by control mode then by the operator.
+
+        The control mode goes first so that an explicit whitelist can never
+        smuggle a direct army order into a run where the native AI is executing.
+        """
+        from .agent.hybrid import actions_for_mode
+
+        allowed = actions_for_mode(set(adapter_supports), self.operational_control)
         if self.enabled_actions is not None:
             allowed &= set(self.enabled_actions)
         return allowed - set(self.disabled_actions)

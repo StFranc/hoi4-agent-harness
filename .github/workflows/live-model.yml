@@ -1,0 +1,91 @@
+name: live-model
+
+# The offline suite proves the harness works. This proves it works against a
+# real model, which is a different claim: provider wire formats drift, tool
+# schemas get rejected, and none of that shows up in a scripted run.
+#
+# Runs on demand, and weekly. Skips itself cleanly when no key is configured, so
+# a fork without secrets does not see a red X it cannot fix.
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: "anthropic | openai | google"
+        required: true
+        default: anthropic
+      model:
+        description: "Model id (blank = provider default)"
+        required: false
+        default: ""
+      guidance:
+        description: "Guidance pack"
+        required: false
+        default: doctrine
+      turns:
+        description: "Turns to play"
+        required: false
+        default: "12"
+  schedule:
+    - cron: "17 6 * * 1"
+
+jobs:
+  live:
+    name: one real run
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Decide whether we have a key
+        id: keys
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: |
+          provider="${{ github.event.inputs.provider || 'anthropic' }}"
+          case "$provider" in
+            anthropic) key="$ANTHROPIC_API_KEY" ;;
+            openai)    key="$OPENAI_API_KEY" ;;
+            google)    key="$GOOGLE_API_KEY" ;;
+          esac
+          if [ -z "$key" ]; then
+            echo "No key configured for $provider - skipping the live run."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "provider=$provider" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.keys.outputs.run == 'true'
+        run: pip install -e ".[dev,anthropic,openai,google]"
+
+      - name: Play
+        if: steps.keys.outputs.run == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: |
+          hoi4-harness play \
+            --provider "${{ steps.keys.outputs.provider }}" \
+            ${{ github.event.inputs.model && format('--model {0}', github.event.inputs.model) || '' }} \
+            --guidance "${{ github.event.inputs.guidance || 'doctrine' }}" \
+            --turns "${{ github.event.inputs.turns || 12 }}" \
+            --max-usd 2 \
+            --run-dir runs/live
+
+      - name: The run has to have actually played
+        if: steps.keys.outputs.run == 'true'
+        run: python .github/scripts/check_run.py runs/live
+
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.keys.outputs.run == 'true'
+        with:
+          name: live-transcript
+          path: runs/live
+          retention-days: 14

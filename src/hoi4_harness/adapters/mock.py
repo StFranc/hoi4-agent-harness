@@ -59,6 +59,10 @@ class MockAdapter(GameAdapter):
             "set_game_speed",
             "advance_time",
             "note",
+            "delegate_army_to_ai",
+            "set_ai_posture",
+            "set_ai_directive",
+            "clear_ai_directives",
         }
     )
 
@@ -306,3 +310,51 @@ class MockAdapter(GameAdapter):
 
     def _do_note(self, call: ActionCall) -> ActionResult:
         return self._ok(call, "Noted.", text=call.arguments.get("text", "")[:200])
+
+    # --- hybrid control ------------------------------------------------------
+    # A crude stand-in: delegated armies are simply recorded, and a defensive
+    # posture makes the mock's scripted fronts hold. It is enough to exercise the
+    # control split end to end; it says nothing about whether the real AI would
+    # do better.
+
+    def _do_delegate_army_to_ai(self, call: ActionCall) -> ActionResult:
+        army = call.arguments["army"]
+        delegate = bool(call.arguments["delegate"])
+        armies = ["all"] if army == "all" else [army]
+        if delegate:
+            for name in armies:
+                if name not in self.state.delegated_armies:
+                    self.state.delegated_armies.append(name)
+        else:
+            self.state.delegated_armies = [
+                name for name in self.state.delegated_armies if name not in armies
+            ]
+        verb = "delegated to" if delegate else "recalled from"
+        return self._ok(
+            call,
+            f"{army} {verb} the game AI.",
+            delegated=len(self.state.delegated_armies),
+        )
+
+    def _do_set_ai_posture(self, call: ActionCall) -> ActionResult:
+        if not self.state.delegated_armies:
+            return self._fail(call, "No armies are delegated, so posture does nothing yet.")
+        self.state.posture = call.arguments["posture"]
+        return self._ok(call, f"Posture set to {self.state.posture}.")
+
+    def _do_set_ai_directive(self, call: ActionCall) -> ActionResult:
+        directive = call.arguments["directive"]
+        target = call.arguments["target"]
+        weight = int(call.arguments.get("weight", 100))
+        entry = f"{directive} {target} ({weight})"
+        self.state.ai_directives = [
+            d for d in self.state.ai_directives if not d.startswith(f"{directive} {target} ")
+        ]
+        self.state.ai_directives.append(entry)
+        return self._ok(call, f"Directive standing: {entry}.", directives=len(self.state.ai_directives))
+
+    def _do_clear_ai_directives(self, call: ActionCall) -> ActionResult:
+        dropped = len(self.state.ai_directives)
+        self.state.ai_directives = []
+        self.state.posture = None
+        return self._ok(call, f"Cleared {dropped} directive(s).")

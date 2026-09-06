@@ -59,8 +59,10 @@ you at run time.
 
 | Setting | Notes |
 |---|---|
-| `adapter` | `mock`, `savegame`, `screen`, `savegame+input`, `screen+input` |
+| `adapter` | `mock`, `logtail`, `savegame`, `screen`, and `X+input` pairs |
+| `operational_control` | `llm` (model commands directly) or `ai` (native AI runs operations — see [hybrid-control.md](hybrid-control.md)) |
 | `country`, `start_date`, `seed` | mock adapter start |
+| `log_path` / `HOI4_LOG_PATH` | `game.log`, for the logtail adapter |
 | `save_dir`, `window_title` | real-game adapters |
 
 ## Profiles

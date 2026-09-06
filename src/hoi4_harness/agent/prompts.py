@@ -48,6 +48,7 @@ def build_system(
     guidance: str | Path | None = "doctrine",
     extra: str = "",
     system_prompt_path: str | Path | None = None,
+    operational_control: str = "llm",
 ) -> str:
     """Assemble the system prompt.
 
@@ -57,7 +58,9 @@ def build_system(
     if system_prompt_path:
         return Path(system_prompt_path).read_text(encoding="utf-8").strip()
 
-    parts = [MECHANICS]
+    from .hybrid import describe
+
+    parts = [MECHANICS, describe(operational_control)]
     text = load_guidance(guidance)
     if text:
         parts.append(text)

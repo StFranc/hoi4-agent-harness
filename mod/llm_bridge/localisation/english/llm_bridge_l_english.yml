@@ -1,0 +1,11 @@
+l_english:
+ llm_bridge_category:0 "LLM Bridge"
+ llm_bridge_category_desc:0 "Directives raised by the agent harness. Safe to ignore if you are playing this yourself."
+ llmb_posture_defensive:0 "Directive: hold the line"
+ llmb_posture_defensive_desc:0 "Tell the army AI to prioritise holding and reinforcing fronts over advancing."
+ llmb_posture_offensive:0 "Directive: press the attack"
+ llmb_posture_offensive_desc:0 "Tell the army AI to weight offensive operations more heavily."
+ llmb_clear_directives:0 "Directive: stand down"
+ llmb_clear_directives_desc:0 "Clear every standing directive and return the AI to its default behaviour."
+ llmb_force_telemetry:0 "Emit telemetry now"
+ llmb_force_telemetry_desc:0 "Write a state line to game.log immediately, instead of waiting for the daily tick."

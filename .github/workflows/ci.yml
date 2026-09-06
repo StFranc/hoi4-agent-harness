@@ -7,6 +7,7 @@ on:
 
 jobs:
   test:
+    name: tests (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -20,7 +21,55 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check src tests
       - run: pytest -q
+
+  agent-smoke:
+    name: agent smoke run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+
       # The offline path must keep working with no API key and no game installed.
-      - run: hoi4-harness doctor
-      - run: hoi4-harness play --turns 10
-      - run: hoi4-harness eval economy_ramp
+      - name: doctor
+        run: hoi4-harness doctor
+      - name: the prompt is printable in every guidance mode
+        run: |
+          for pack in none unconstrained minimal doctrine historical coach hybrid; do
+            hoi4-harness prompt --guidance "$pack" > /dev/null
+          done
+
+      # A full run in each control mode, then assert on the transcript rather
+      # than on the exit code -- a run that "succeeds" while taking no actions
+      # is the failure this is here to catch.
+      - name: direct control
+        run: hoi4-harness play --turns 30 --run-dir runs/direct
+      - name: hybrid control (native AI runs operations)
+        run: |
+          HOI4_OPERATIONAL_CONTROL=ai hoi4-harness play \
+            --guidance hybrid --turns 30 --live --allow-all --run-dir runs/hybrid
+      - name: scenarios
+        run: hoi4-harness eval --run-dir runs/eval
+
+      - name: assert the runs did something
+        run: python .github/scripts/check_run.py runs/direct runs/hybrid runs/eval
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: transcripts
+          path: runs/
+          retention-days: 7
+
+  mod:
+    name: mod static checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: pytest tests/test_mod.py -q

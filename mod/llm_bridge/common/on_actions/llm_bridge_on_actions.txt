@@ -1,0 +1,49 @@
+# LLM Bridge -- when telemetry fires.
+#
+# Daily is the default because the harness decides its own cadence and would
+# rather throw away lines than miss a transition. If logging volume becomes a
+# problem, move llm_bridge_emit_state to on_weekly and keep the event hooks
+# daily: events are what wake the planner early, and they are cheap.
+
+on_actions = {
+	on_startup = {
+		effect = {
+			every_country = {
+				limit = { is_ai = no }
+				set_variable = { llmb_ai_delegated_armies = 0 }
+				log = "LLMB|v1|boot|tag=[ROOT.GetTag]|start=[GetDateText]"
+				llm_bridge_emit_state = yes
+			}
+		}
+	}
+
+	on_daily = {
+		effect = {
+			every_country = {
+				limit = { is_ai = no }
+				llm_bridge_emit_state = yes
+			}
+		}
+	}
+
+	# --- events that should cut a scheduled wait short -----------------------
+
+	on_declare_war = {
+		effect = {
+			set_variable = { llmb_event_kind = 1 }   # war_declared
+			llm_bridge_emit_event = yes
+		}
+	}
+
+	on_capitulation = {
+		effect = {
+			set_variable = { llmb_event_kind = 2 }   # capitulation
+			llm_bridge_emit_event = yes
+		}
+	}
+
+	# TODO: focus completion, research completion and construction completion.
+	# on_focus_finished / on_research_complete style hooks exist but the exact
+	# names and scopes differ by version -- verify against common/on_actions in
+	# your install rather than copying from a wiki page of unknown vintage.
+}

@@ -16,7 +16,15 @@ __all__ = [
     "build_adapter",
 ]
 
-ADAPTERS = ("mock", "savegame", "screen", "savegame+input", "screen+input")
+ADAPTERS = (
+    "mock",
+    "savegame",
+    "screen",
+    "logtail",
+    "logtail+input",
+    "savegame+input",
+    "screen+input",
+)
 
 
 def build_adapter(config: HarnessConfig) -> GameAdapter:
@@ -38,6 +46,10 @@ def build_adapter(config: HarnessConfig) -> GameAdapter:
         from .screen import ScreenAdapter
 
         return ScreenAdapter(config.window_title)
+    if name == "logtail":
+        from .logtail import LogTailAdapter
+
+        return LogTailAdapter(config.log_path, country=config.country)
     if "+" in name:
         read_name, _ = name.split("+", 1)
         from .input_driver import InputConfig, InputDriverAdapter
@@ -46,6 +58,8 @@ def build_adapter(config: HarnessConfig) -> GameAdapter:
             HarnessConfig(
                 adapter=read_name,
                 save_dir=config.save_dir,
+                log_path=config.log_path,
+                country=config.country,
                 window_title=config.window_title,
             )
         )

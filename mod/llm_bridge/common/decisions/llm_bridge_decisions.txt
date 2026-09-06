@@ -1,0 +1,57 @@
+# LLM Bridge -- the input surface.
+#
+# The harness clicks decisions rather than vanilla UI because a decision is a
+# stable, moddable target: it does not move when Paradox reorganises a panel,
+# and it works without debug mode or console commands. Every decision here is
+# instant, free, and idempotent, so a mis-click costs nothing.
+
+llm_bridge_category = {
+
+	llmb_posture_defensive = {
+		icon = generic_political_actions
+		cost = 0
+		fire_only_once = no
+		days_re_enable = 0
+		available = { always = yes }
+		complete_effect = {
+			llm_bridge_set_posture_defensive = yes
+		}
+		ai_will_do = { factor = 0 }
+	}
+
+	llmb_posture_offensive = {
+		icon = generic_political_actions
+		cost = 0
+		fire_only_once = no
+		days_re_enable = 0
+		available = { always = yes }
+		complete_effect = {
+			llm_bridge_set_posture_offensive = yes
+		}
+		ai_will_do = { factor = 0 }
+	}
+
+	llmb_clear_directives = {
+		icon = generic_political_actions
+		cost = 0
+		fire_only_once = no
+		days_re_enable = 0
+		available = { always = yes }
+		complete_effect = {
+			llm_bridge_clear_directives = yes
+		}
+		ai_will_do = { factor = 0 }
+	}
+
+	llmb_force_telemetry = {
+		icon = generic_political_actions
+		cost = 0
+		fire_only_once = no
+		days_re_enable = 0
+		available = { always = yes }
+		complete_effect = {
+			llm_bridge_emit_state = yes
+		}
+		ai_will_do = { factor = 0 }
+	}
+}

@@ -96,6 +96,16 @@ def render_full(state: GameState, max_events: int = 6) -> str:
                 f"{front.divisions_enemy}, {front.stance}, {front.pressure}"
             )
 
+    if state.delegated_armies or state.ai_directives or state.posture:
+        bits = []
+        if state.delegated_armies:
+            bits.append(f"{len(state.delegated_armies)} army(s) delegated to the game AI")
+        if state.posture:
+            bits.append(f"posture {state.posture}")
+        if state.ai_directives:
+            bits.append("directives: " + "; ".join(state.ai_directives[:4]))
+        lines.append("AI control: " + " | ".join(bits))
+
     if state.events:
         lines.append("Since last turn:")
         for event in state.events[:max_events]:

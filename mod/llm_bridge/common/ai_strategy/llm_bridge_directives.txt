@@ -1,0 +1,75 @@
+# LLM Bridge -- strategic directives for the native AI.
+#
+# This is the write half of the hybrid model. The LLM does not micromanage
+# fronts; it sets intent, and the game's own AI executes it. The mechanism is
+# deliberately boring: the harness sets a country flag or variable, an
+# ai_strategy here keys on it, and the vanilla AI starts behaving accordingly.
+#
+# Each block below is one directive the harness can raise or drop. Weights are
+# starting points -- tune them against your own game rather than trusting these.
+#
+# VERIFY: ai_strategy `type` names and their valid scopes change between
+# versions. Diff this file against common/ai_strategy in your install before a
+# run that matters; an unrecognised type is silently ignored by the game, which
+# means a directive that looks applied and does nothing.
+
+llmb_invade_target = {
+	enable = {
+		has_country_flag = llmb_directive_invade
+	}
+	abort = {
+		NOT = { has_country_flag = llmb_directive_invade }
+	}
+	ai_strategy = {
+		type = invade
+		id = "GER"          # TODO: read the target from llmb_directive_invade_target
+		value = 200
+	}
+}
+
+llmb_protect_target = {
+	enable = {
+		has_country_flag = llmb_directive_protect
+	}
+	abort = {
+		NOT = { has_country_flag = llmb_directive_protect }
+	}
+	ai_strategy = {
+		type = protect
+		id = "FIN"
+		value = 150
+	}
+}
+
+llmb_defensive_posture = {
+	enable = {
+		has_country_flag = llmb_posture_defensive
+	}
+	abort = {
+		NOT = { has_country_flag = llmb_posture_defensive }
+	}
+	# Hold the line and ask for more units on the front rather than pushing.
+	ai_strategy = {
+		type = front_unit_request
+		tag = ROOT
+		value = 50
+	}
+	ai_strategy = {
+		type = garrison
+		value = 30
+	}
+}
+
+llmb_offensive_posture = {
+	enable = {
+		has_country_flag = llmb_posture_offensive
+	}
+	abort = {
+		NOT = { has_country_flag = llmb_posture_offensive }
+	}
+	ai_strategy = {
+		type = front_unit_request
+		tag = ROOT
+		value = 100
+	}
+}
