@@ -60,7 +60,3 @@ being trustworthy rather than the agent being well-behaved:
 - **The confirmation gate** — irreversible actions are blocked in dry-run mode,
   and route through `confirm_hook` when live. Turn it off with `--allow-all`.
 - **Budget ceilings** — money, not morals.
-
-The one thing that is a genuine rule rather than a setting is where you point
-this: single-player. That is about other people, not about the agent, and it is in
-[fair-play.md](fair-play.md).

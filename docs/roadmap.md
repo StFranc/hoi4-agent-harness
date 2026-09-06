@@ -67,6 +67,6 @@ and where the reflex layer is least adequate.
 
 - Beating good human players. The question is whether an agent can play
   coherently for a decade of game time on a budget, not whether it can win.
-- Multiplayer, in any form. See [fair-play.md](fair-play.md).
+- Multiplayer, in any form.
 - Hooking the engine or reading process memory. The bridge stays at the level a
   player operates at: files the game writes, and input a person could send.
