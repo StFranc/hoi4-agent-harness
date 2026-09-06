@@ -189,6 +189,27 @@ See [.env.example](.env.example) for every environment variable, and
 [docs/customization.md](docs/customization.md) for the full settings table.
 
 
+## Where it goes next
+
+Five milestones, each a claim the repo cannot currently make, tracked as
+[milestones](https://github.com/Xocas12/hoi4-agent-harness/milestones) with the
+work broken out in [issue #24](https://github.com/Xocas12/hoi4-agent-harness/issues/24):
+
+| | Claim |
+|---|---|
+| [v0.2](https://github.com/Xocas12/hoi4-agent-harness/milestone/1) | The harness plays a real game, not a mock |
+| [v0.3](https://github.com/Xocas12/hoi4-agent-harness/milestone/2) | The model commands and the game's AI executes |
+| [v0.4](https://github.com/Xocas12/hoi4-agent-harness/milestone/3) | The compression story survives a war |
+| [v0.5](https://github.com/Xocas12/hoi4-agent-harness/milestone/4) | A score from this harness means something |
+| [v0.6](https://github.com/Xocas12/hoi4-agent-harness/milestone/5) | The machinery is boring and trustworthy |
+
+Two of those issues are the questions the project exists to answer: whether an
+agent can play coherently for a decade of game time on a budget
+([#14](https://github.com/Xocas12/hoi4-agent-harness/issues/14)), and whether
+splitting command between a model and the game's own AI beats either alone
+([#10](https://github.com/Xocas12/hoi4-agent-harness/issues/10)). Everything else
+is plumbing in service of asking them properly.
+
 ## License
 
 MIT.
