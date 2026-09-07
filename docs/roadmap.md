@@ -1,6 +1,6 @@
 # Roadmap
 
-Six milestones, ordered by what unblocks the most. Each one is a claim the repo
+Seven milestones, ordered by what unblocks the most. Each one is a claim the repo
 cannot currently make; the issues under it are what it would take to make it.
 Tracked at [github.com/Xocas12/hoi4-agent-harness/milestones](https://github.com/Xocas12/hoi4-agent-harness/milestones).
 
@@ -32,6 +32,25 @@ the real clock. Until this lands everything else is theory.
 - UI scripts with verification for focus, research, construction, production, advisor
 - `CompositeAdapter.advance()` blocking on the in-game date
 - A calibration command for screen coordinates
+
+## v0.2.5 — Co-op play
+
+*Claim: the model plays alongside a person, in the same campaign.*
+
+The harness was designed as if the agent were the only player: it owns the clock
+and the keyboard. Sharing a campaign with a human breaks both assumptions, and
+the modes that come out of fixing them are the ones most people will actually
+use.
+
+- Advisor mode — you play, it recommends, it never acts (needs only the read path)
+- Passive mode — never pause, resume, or set speed
+- Action handover — queue actions, execute in a window the player grants
+- Split portfolio — the model takes the economy, you keep the army (already
+  expressible today with `--actions`, once the input driver can act)
+
+Co-op runs are for playing, not for measuring: once both parties act, outcome
+attribution is gone and the eval runner should refuse to score the transcript
+rather than produce a number that means nothing.
 
 ## v0.3 — Hybrid control
 
