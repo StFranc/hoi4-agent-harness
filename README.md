@@ -191,12 +191,13 @@ See [.env.example](.env.example) for every environment variable, and
 
 ## Where it goes next
 
-Five milestones, each a claim the repo cannot currently make, tracked as
+Six milestones, each a claim the repo cannot currently make, tracked as
 [milestones](https://github.com/Xocas12/hoi4-agent-harness/milestones) with the
 work broken out in [issue #24](https://github.com/Xocas12/hoi4-agent-harness/issues/24):
 
 | | Claim |
 |---|---|
+| [v0.1.1](https://github.com/Xocas12/hoi4-agent-harness/milestone/6) | The harness survives an overnight run |
 | [v0.2](https://github.com/Xocas12/hoi4-agent-harness/milestone/1) | The harness plays a real game, not a mock |
 | [v0.3](https://github.com/Xocas12/hoi4-agent-harness/milestone/2) | The model commands and the game's AI executes |
 | [v0.4](https://github.com/Xocas12/hoi4-agent-harness/milestone/3) | The compression story survives a war |

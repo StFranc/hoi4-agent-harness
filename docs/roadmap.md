@@ -1,8 +1,23 @@
 # Roadmap
 
-Five milestones, ordered by what unblocks the most. Each one is a claim the repo
+Six milestones, ordered by what unblocks the most. Each one is a claim the repo
 cannot currently make; the issues under it are what it would take to make it.
 Tracked at [github.com/Xocas12/hoi4-agent-harness/milestones](https://github.com/Xocas12/hoi4-agent-harness/milestones).
+
+## v0.1.1 — Robustness
+
+*Claim: the harness survives an overnight run.*
+
+Found by auditing the code rather than the roadmap. None of these show up in a
+30-turn mock run, and all of them show up in a six-hour campaign against a real
+game. None needs a game or an API key to fix.
+
+- A transient API error must degrade to the reflex layer, not end the run
+- Resume from a transcript after a crash
+- Wire up the triage model role or delete it
+- Tests for the save parser and provider wire conversion
+- Refuse to send input when the game is not the focused window
+- Per-turn progress output; remove dead config
 
 ## v0.2 — Live bridge
 
