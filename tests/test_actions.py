@@ -13,6 +13,15 @@ def test_every_spec_has_a_well_formed_schema():
             assert name in spec.parameters["properties"], f"{spec.name}: {name} not declared"
 
 
+def test_start_research_declares_no_slot_argument():
+    # An argument nothing reads is a silent no-op: no adapter implements `slot`
+    # (the mock fills the first free slot and reports where research landed), so
+    # declaring it let a model pass slots 0-4 against a three-slot state and be
+    # told it succeeded -- issue #39.
+    spec = catalog.get("start_research")
+    assert spec is not None and "slot" not in spec.parameters["properties"]
+
+
 def test_unknown_action_is_rejected_with_a_hint():
     problem = registry.check(ActionCall("set_national_focos", {"focus_id": "x"}))
     assert problem is not None and problem.error_kind == "invalid_action"

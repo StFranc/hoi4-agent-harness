@@ -80,10 +80,7 @@ ACTIONS: list[ActionSpec] = [
         category="research",
         description="Put a technology into a free research slot.",
         parameters=_schema(
-            {
-                "technology": {"type": "string", "description": "Technology id."},
-                "slot": {"type": "integer", "minimum": 0, "maximum": 4},
-            },
+            {"technology": {"type": "string", "description": "Technology id."}},
             ["technology"],
         ),
     ),

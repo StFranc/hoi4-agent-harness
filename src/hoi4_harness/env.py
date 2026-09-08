@@ -33,13 +33,14 @@ class HOI4Env:
     def read_state(self) -> GameState:
         return self.adapter.read_state()
 
-    def observe(self, notes: list[str] | None = None) -> Observation:
+    def observe(self, notes: list[str] | None = None, *, remember: bool = True) -> Observation:
         state = self.adapter.read_state()
         return self.builder.build(
             state,
             turn=self.turn,
             legal_actions=sorted(self.allowed_actions),
             notes=notes,
+            remember=remember,
         )
 
     @property
@@ -50,7 +51,9 @@ class HOI4Env:
         self.turn = 0
         if self.owns_clock:
             self.adapter.pause()
-        return self.observe()
+        # The brief reset returns is real (the observe CLI prints it), but it must
+        # not set the diff baseline: the first observe() after reset is still full.
+        return self.observe(remember=False)
 
     # --- acting --------------------------------------------------------------
 

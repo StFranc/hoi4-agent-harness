@@ -26,6 +26,8 @@ class ObservationBuilder:
         turn: int,
         legal_actions: list[str] | None = None,
         notes: list[str] | None = None,
+        *,
+        remember: bool = True,
     ) -> Observation:
         critical = any(e.severity == "critical" for e in state.events)
         use_full = (
@@ -37,12 +39,14 @@ class ObservationBuilder:
 
         if use_full:
             brief = render_full(state)
-            self._turns_since_full = 0
         else:
             brief = render_delta(self._previous, state)
-            self._turns_since_full += 1
 
-        self._previous = _snapshot(state)
+        # remember=False renders a look that must not become the diff baseline,
+        # so the next build still qualifies for a full brief (env.reset uses it).
+        if remember:
+            self._turns_since_full = 0 if use_full else self._turns_since_full + 1
+            self._previous = _snapshot(state)
         return Observation(
             turn=turn,
             state=state,
