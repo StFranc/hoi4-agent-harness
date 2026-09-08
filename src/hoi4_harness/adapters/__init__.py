@@ -66,5 +66,5 @@ def build_adapter(config: HarnessConfig) -> GameAdapter:
         writer = InputDriverAdapter(
             InputConfig(window_title=config.window_title), dry_run=config.dry_run
         )
-        return CompositeAdapter(reader, writer)
+        return CompositeAdapter(reader, writer, clock_owner=config.clock_owner)
     raise ValueError(f"Unknown adapter {name!r}. Known: {', '.join(ADAPTERS)}")

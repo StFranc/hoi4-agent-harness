@@ -85,6 +85,19 @@ design.
 
 ## composite
 
-Pairs a reader with a writer: `--adapter savegame+input` or `screen+input`. Its
-`advance()` is the remaining rough edge — it should block until the in-game date
-has actually moved and cut short on a critical event.
+Pairs a reader with a writer: `--adapter logtail+input`, `savegame+input` or
+`screen+input`.
+
+`advance()` blocks on the **in-game** date rather than returning after a single
+read, and returns early on a critical event. Without that, a real bridge takes a
+turn every few milliseconds and burns a budget in seconds. A wall-clock deadline
+is the backstop, so a wedged game ends the turn instead of hanging the run, and
+the game is left paused on every exit path including the timeout and an exception
+from the reader.
+
+Who owns the clock is a setting. With `clock_owner="harness"` (the default) the
+composite unpauses, waits, and pauses again. With `clock_owner="player"` it never
+sends a clock instruction at all — it only watches the date move — and
+`set_game_speed` is removed from the action list so the model cannot take the
+clock either. That is the mode to use when a person is playing the same
+campaign.

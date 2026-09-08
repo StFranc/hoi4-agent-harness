@@ -42,9 +42,14 @@ class HOI4Env:
             notes=notes,
         )
 
+    @property
+    def owns_clock(self) -> bool:
+        return self.config.clock_owner == "harness"
+
     def reset(self) -> Observation:
         self.turn = 0
-        self.adapter.pause()
+        if self.owns_clock:
+            self.adapter.pause()
         return self.observe()
 
     # --- acting --------------------------------------------------------------

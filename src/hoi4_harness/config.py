@@ -161,6 +161,11 @@ class HarnessConfig:
     # Which layer owns operations. "llm" = the model moves every army;
     # "ai" = the native AI runs fronts and the model sets intent (hybrid).
     operational_control: str = "llm"
+    # Who owns the game clock. "harness" pauses, decides, and runs the game
+    # forward itself. "player" never touches it -- required when a person is
+    # playing the same campaign, since being paused mid-battle by your own
+    # tooling is worse than having no tooling.
+    clock_owner: str = "harness"
     country: str = "SWE"
     start_date: str = "1936-01-01"
     seed: int = 1936
@@ -193,6 +198,7 @@ class HarnessConfig:
             log_path=Path(log_path) if log_path else None,
             window_title=os.environ.get("HOI4_WINDOW_TITLE", "Hearts of Iron IV"),
             operational_control=os.environ.get("HOI4_OPERATIONAL_CONTROL", "llm").strip(),
+            clock_owner=os.environ.get("HOI4_CLOCK_OWNER", "harness").strip(),
             country=os.environ.get("HOI4_COUNTRY", "SWE"),
             start_date=os.environ.get("HOI4_START_DATE", "1936-01-01"),
             seed=_env_int("HOI4_SEED", 1936),
@@ -246,6 +252,10 @@ class HarnessConfig:
         from .agent.hybrid import actions_for_mode
 
         allowed = actions_for_mode(set(adapter_supports), self.operational_control)
+        if self.clock_owner != "harness":
+            # The player owns the clock, so the model may not take it either --
+            # structurally, not by asking it nicely in the prompt.
+            allowed -= {"set_game_speed"}
         if self.enabled_actions is not None:
             allowed &= set(self.enabled_actions)
         return allowed - set(self.disabled_actions)

@@ -68,6 +68,8 @@ def _config_from_args(args: argparse.Namespace) -> HarnessConfig:
         config.require_confirmation = False
     if getattr(args, "no_reflex", False):
         config.reflex_enabled = False
+    if getattr(args, "player_clock", False):
+        config.clock_owner = "player"
     if getattr(args, "country", None):
         config.country = args.country
     if getattr(args, "start_date", None):
@@ -84,6 +86,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     print(f"adapter          {config.adapter}")
     print(f"planner          {config.planner.provider}:{config.planner.model}")
     print(f"dry run          {config.dry_run}")
+    print(f"clock owner      {config.clock_owner}")
     print(f"guidance         {config.system_prompt_path or config.guidance}")
     print(f"confirm gate     {config.require_confirmation}")
 
@@ -211,6 +214,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="skip the confirmation gate on irreversible actions")
         p.add_argument("--no-reflex", dest="no_reflex", action="store_true",
                        help="disable the deterministic reflex layer; the model decides everything")
+        p.add_argument("--player-clock", dest="player_clock", action="store_true",
+                       help="a person is playing: never pause, resume or set game speed")
         p.add_argument("--country", help="country tag (mock adapter)")
         p.add_argument("--start-date", dest="start_date", help="start date (mock adapter)")
         p.add_argument("--seed", type=int, help="mock adapter seed")

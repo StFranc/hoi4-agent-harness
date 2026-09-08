@@ -12,12 +12,12 @@ from __future__ import annotations
 
 import os
 import re
-import time
 from datetime import date
 from pathlib import Path
 
 from ..types import ActionCall, ActionResult, GameEvent, GameState
 from .base import AdapterInfo, GameAdapter
+from .clock import wait_for_days
 
 #: Must match LLMB_SCHEMA_VERSION in the mod's telemetry effect.
 SCHEMA_VERSION = 1
@@ -109,8 +109,14 @@ class LogTailAdapter(GameAdapter):
 
     supported_actions = frozenset()
 
-    def __init__(self, log_path: Path | None = None, country: str | None = None):
+    def __init__(
+        self,
+        log_path: Path | None = None,
+        country: str | None = None,
+        poll_seconds: float = 0.5,
+    ):
         self.log_path = find_log(log_path)
+        self.poll_seconds = poll_seconds
         self.country = country
         self._offset = 0
         self._state = GameState(unknown_fields=list(NOT_EMITTED))
@@ -208,25 +214,10 @@ class LogTailAdapter(GameAdapter):
         return self.unsupported(call)
 
     def advance(self, days: int) -> GameState:
-        """Wait for the game to move `days` forward, or for a critical event.
+        """Watch the clock until the date has moved, or something critical lands.
 
-        The game is running while this blocks -- the harness sets the speed and
-        this call watches the clock, which is the whole point of a live bridge.
+        This adapter never touches the clock -- it has no write channel and, in
+        co-op, no business taking it. The game runs at whatever speed the player
+        or the writer set.
         """
-        start = self.read_state().date
-        deadline = time.monotonic() + max(30.0, days * 20.0)
-        while time.monotonic() < deadline:
-            state = self.read_state()
-            if any(event.severity == "critical" for event in state.events):
-                return state
-            if _days_between(start, state.date) >= days:
-                return state
-            time.sleep(0.5)
-        return self.read_state()
-
-
-def _days_between(start_iso: str, end_iso: str) -> int:
-    try:
-        return (date.fromisoformat(end_iso) - date.fromisoformat(start_iso)).days
-    except ValueError:
-        return 0
+        return wait_for_days(self.read_state, days, self.poll_seconds)
