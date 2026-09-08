@@ -25,6 +25,10 @@ class ScoreCard:
     actions_ok: int = 0
     actions_failed: int = 0
     invalid_rate: float = 0.0
+    # Set when the run ended before its turns ran out because the provider could
+    # not be kept alive; the reflex layer played the remainder. The score still
+    # counts, but a partial run sitting next to complete ones has to say so.
+    stopped_reason: str | None = None
     tokens_in: int = 0
     tokens_out: int = 0
     usd: float = 0.0
@@ -74,6 +78,7 @@ def score(scenario: Scenario, final_state: GameState, report: RunReport) -> Scor
         actions_ok=report.actions_ok,
         actions_failed=report.actions_failed,
         invalid_rate=(report.actions_failed / attempted) if attempted else 0.0,
+        stopped_reason=report.stopped_reason,
         tokens_in=spend.get("input_tokens", 0),
         tokens_out=spend.get("output_tokens", 0),
         usd=spend.get("usd", 0.0),

@@ -8,6 +8,7 @@
     hoi4-harness replay run.jsonl --turn 3  rebuild a turn's prompt, compare models
     hoi4-harness eval economy_ramp          run a scenario and score it
     hoi4-harness eval --no-llm              score every scenario on reflexes alone
+    hoi4-harness compare economy_ramp       the same scenario across models, one table
 
 Everything defaults to the mock adapter and the scripted model, so a fresh clone
 does something useful with no API key and no game installed.
@@ -230,6 +231,21 @@ def cmd_eval(args: argparse.Namespace) -> int:
     return 0 if not args.strict else min(failed, 1)
 
 
+def cmd_compare(args: argparse.Namespace) -> int:
+    from .eval import compare
+
+    config = _config_from_args(args)
+    specs = [s.strip() for s in args.models.split(",") if s.strip()] if args.models else None
+    try:
+        print(compare(args.scenario, specs, config).render())
+    except KeyError as exc:
+        # The scenario is resolved before any model runs; the message names the
+        # known ones.
+        print(f"compare: {exc.args[0]}", file=sys.stderr)
+        return 2
+    return 0
+
+
 def cmd_prompt(args: argparse.Namespace) -> int:
     """Print the exact system prompt a run would use. Nothing is hidden."""
     from .agent.prompts import build_system
@@ -346,6 +362,19 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--write-baseline", dest="write_baseline", action="store_true",
                           help="record the reflex-only scores as the committed baseline (needs --no-llm)")
     evaluate.set_defaults(func=cmd_eval)
+
+    compare = sub.add_parser(
+        "compare", help="run one scenario across models, score next to spend"
+    )
+    common(compare)
+    compare.add_argument("scenario")
+    compare.add_argument(
+        "--models", metavar="P:M[,P:M...]",
+        help="provider:model entries to race, e.g. anthropic:claude-opus-5,openai:qwen2.5:14b "
+             "(default: the configured planner)",
+    )
+    compare.add_argument("--days", type=int, help="in-game days per turn")
+    compare.set_defaults(func=cmd_compare)
 
     calibrate = sub.add_parser("calibrate", help="record screen coordinates for the input driver")
     common(calibrate)
