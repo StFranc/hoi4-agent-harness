@@ -24,10 +24,12 @@ from ..config import HarnessConfig
 from ..env import HOI4Env
 from ..types import ActionCall, ActionResult
 from .budget import BudgetGuard
+from .errors import classify, describe
 from .llm.base import LLMClient, Msg, ToolResult
 from .memory import Memory
 from .policy import Policy
 from .prompts import build_system, turn_prompt
+from .resume import rebuild
 
 
 @dataclass
@@ -37,10 +39,15 @@ class RunReport:
     reflex_turns: int = 0
     actions_ok: int = 0
     actions_failed: int = 0
+    llm_errors: int = 0
     start_date: str = ""
     end_date: str = ""
     spend: dict = field(default_factory=dict)
     transcript_path: str | None = None
+    #: Set when the run ended early. A completed run leaves this None, so a
+    #: caller can tell "played 200 turns" from "gave up after 3".
+    stopped_reason: str | None = None
+    resumed_from: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return self.__dict__
@@ -49,11 +56,14 @@ class RunReport:
 class Transcript:
     """Append-only JSONL, one record per event. The eval runner reads these."""
 
-    def __init__(self, path: Path | None):
+    def __init__(self, path: Path | None, append: bool = False):
         self.path = path
         if path:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("", encoding="utf-8")
+            if not append:
+                path.write_text("", encoding="utf-8")
+            elif not path.exists():
+                path.touch()
 
     def write(self, kind: str, **payload) -> None:
         if not self.path:
@@ -71,6 +81,7 @@ class AgentLoop:
         config: HarnessConfig | None = None,
         memory: Memory | None = None,
         transcript_path: Path | None = None,
+        resume: bool = False,
     ):
         self.env = env
         self.planner = planner
@@ -89,15 +100,45 @@ class AgentLoop:
             operational_control=self.config.operational_control,
         )
         self.budget = BudgetGuard(self.config.budget)
-        self.transcript = Transcript(transcript_path)
+        self.transcript = Transcript(transcript_path, append=resume)
         self.report = RunReport(transcript_path=str(transcript_path) if transcript_path else None)
+        self.run_dir = transcript_path.parent if transcript_path else None
+        self._consecutive_errors = 0
+
+        if resume and transcript_path:
+            self._resume_from(transcript_path)
+
+    def _resume_from(self, transcript_path: Path) -> None:
+        """Carry forward what the interrupted run knew.
+
+        Spend is restored too, so a resumed run cannot quietly double its budget
+        by forgetting what it already spent.
+        """
+        state = rebuild(transcript_path)
+        if not state.records:
+            return
+        self.memory = state.memory if state.memory.journal or state.memory.digest else self.memory
+        self.report.turns = state.turns
+        self.report.planner_calls = state.planner_calls
+        self.report.reflex_turns = state.reflex_turns
+        self.report.actions_ok = state.actions_ok
+        self.report.actions_failed = state.actions_failed
+        self.report.llm_errors = state.llm_errors
+        self.report.start_date = state.start_date
+        self.report.resumed_from = str(transcript_path)
+        self.budget.spend.calls = state.planner_calls
+        self.budget.spend.usage = state.usage
+        self.budget.spend._usd = state.usd
+        self.env.turn = state.turns
+        self.transcript.write("resumed", **{"summary": state.summary(), "records": state.records})
 
     # --- public --------------------------------------------------------------
 
     def run(self, turns: int | None = None) -> RunReport:
         turns = turns if turns is not None else self.config.turns
         state = self.env.read_state()
-        self.report.start_date = state.date
+        if not self.report.start_date:
+            self.report.start_date = state.date
         days_since_planner = self.config.days_per_turn  # wake on the first iteration
 
         for _ in range(turns):
@@ -119,6 +160,11 @@ class AgentLoop:
             state = self.env.advance()
             self.report.turns += 1
             self.report.end_date = state.date
+            self.transcript.write("turn_end", date=state.date, turn=self.report.turns)
+            self._checkpoint()
+
+            if self.report.stopped_reason:
+                break
 
         self.report.spend = self.budget.summary()
         self.transcript.write("run_end", **self.report.to_dict())
@@ -172,7 +218,13 @@ class AgentLoop:
         for _round in range(self.config.max_tool_rounds_per_turn):
             if not self.budget.allows_call():
                 break
-            response = self.planner.complete(self.system, messages, tools)
+            try:
+                response = self.planner.complete(self.system, messages, tools)
+            except Exception as exc:  # noqa: BLE001 - the provider is not ours
+                self._record_llm_failure(exc, observation.state.date)
+                self._reflex_fallback(f"model call failed: {type(exc).__name__}")
+                return
+            self._consecutive_errors = 0
             self.budget.record(response.usage)
             self.report.planner_calls += 1
             self.transcript.write(
@@ -218,6 +270,62 @@ class AgentLoop:
             messages.append(Msg(role="user", tool_results=results))
 
         self.memory.record_turn(observation.state.date, taken)
+
+    # --- failure handling ----------------------------------------------------
+
+    def _record_llm_failure(self, exc: BaseException, date: str) -> None:
+        """Log the failure and decide whether the run can continue.
+
+        A fatal error will fail identically on every later call, so grinding on
+        produces a long transcript of nothing. A transient one is worth riding
+        out -- but only so many in a row, since an unrecognised permanent
+        failure is classified transient by default.
+        """
+        kind = classify(exc)
+        self.report.llm_errors += 1
+        self._consecutive_errors += 1
+        self.transcript.write(
+            "llm_error", date=date, error_kind=kind, error=describe(exc),
+            consecutive=self._consecutive_errors,
+        )
+
+        if kind == "fatal":
+            self.report.stopped_reason = f"fatal provider error: {describe(exc)}"
+        elif self._consecutive_errors >= self.config.max_consecutive_llm_errors:
+            self.report.stopped_reason = (
+                f"{self._consecutive_errors} consecutive provider errors; "
+                f"last was {describe(exc)}"
+            )
+
+    def _reflex_fallback(self, reason: str) -> None:
+        """Play the turn for free rather than losing it."""
+        state = self.env.read_state()
+        calls = self.policy.reflex_actions(state)
+        if not calls:
+            self.transcript.write("skip", date=state.date, reason=reason)
+            return
+        results = self.env.act_many(calls)
+        self._tally(results)
+        self.transcript.write(
+            "reflex", date=state.date, reason=reason,
+            actions=[c.to_dict() for c in calls],
+            results=[r.to_dict() for r in results],
+        )
+
+    def _checkpoint(self) -> None:
+        """Persist memory after every turn, not once at the end.
+
+        Cheap -- the file is small and this runs once per turn, not per tick --
+        and it is the difference between losing five hours and losing one turn.
+        """
+        if not self.run_dir:
+            return
+        try:
+            self.memory.save(self.run_dir / "memory.json")
+        except OSError:
+            # A checkpoint failure must not end a campaign; the transcript is
+            # still the authority and can rebuild this.
+            self.transcript.write("checkpoint_failed", path=str(self.run_dir))
 
     def _tally(self, results: list[ActionResult]) -> None:
         for result in results:

@@ -63,6 +63,33 @@ on four models" a config change.
 Everything above is written to a JSONL transcript, one record per event, which is
 what the eval runner and any later analysis read.
 
+## Surviving a long run
+
+Two failure modes only appear once a run is hours long, and both are handled the
+same way the budget ceiling is: degrade, do not stop.
+
+**A provider error takes the turn, not the run.** The call is wrapped; the
+failure is classified (`agent/errors.py`) from its HTTP status where there is one
+and its exception name where there is not. A transient failure -- rate limit,
+timeout, 5xx -- costs one turn, which the reflex layer plays, and the run
+continues. A fatal one -- bad key, rejected schema -- would fail identically
+forever, so the run stops and says why. Unrecognised errors count as transient,
+because a wrong "transient" costs a turn while a wrong "fatal" costs the
+campaign; consecutive transients are counted, so an unrecognised permanent
+failure still terminates after `max_consecutive_llm_errors`.
+
+**A crash costs one turn, not the campaign.** Memory is checkpointed after every
+turn, and `--resume` rebuilds the rest from the transcript (`agent/resume.py`):
+turn count, spend, the agent's own journal, and the turn digest. Reconstruction
+tolerates a transcript that was truncated mid-write, since that is the normal
+shape of a file written by a process that died. Resuming appends to the same
+transcript rather than truncating it, and carries spend forward -- a resumed run
+cannot quietly get a second budget.
+
+Note what resume does *not* do: it restores what the *harness* knew, not the
+game. The mock's world is gone when the process dies; a live adapter re-observes
+the running game, which is the only case where resume is fully meaningful.
+
 ## Extending it
 
 - **A new action**: add an `ActionSpec` to `actions/catalog.py`, then handle it in

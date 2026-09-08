@@ -142,6 +142,9 @@ class HarnessConfig:
     days_per_turn: int = 7
     max_actions_per_turn: int = 8
     max_tool_rounds_per_turn: int = 3
+    #: Consecutive provider failures tolerated before the run stops. A fatal
+    #: error (bad key, rejected schema) stops immediately regardless.
+    max_consecutive_llm_errors: int = 5
     poll_seconds: float = 2.0
     full_brief_every: int = 8
     wake_on_free_research_slot: bool = True
@@ -180,6 +183,7 @@ class HarnessConfig:
             days_per_turn=_env_int("HOI4_DAYS_PER_TURN", 7),
             max_actions_per_turn=_env_int("HOI4_MAX_ACTIONS_PER_TURN", 8),
             max_tool_rounds_per_turn=_env_int("HOI4_MAX_TOOL_ROUNDS", 3),
+            max_consecutive_llm_errors=_env_int("HOI4_MAX_CONSECUTIVE_LLM_ERRORS", 5),
             full_brief_every=_env_int("HOI4_FULL_BRIEF_EVERY", 8),
             poll_seconds=_env_float("HOI4_POLL_SECONDS", 2.0) or 2.0,
             turns=_env_int("HOI4_TURNS", 10),

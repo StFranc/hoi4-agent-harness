@@ -137,13 +137,17 @@ def cmd_play(args: argparse.Namespace) -> int:
     env = HOI4Env(build_adapter(config), config)
     env.reset()
     run_dir = config.run_dir
+    resume = bool(getattr(args, "resume", False))
     loop = AgentLoop(
         env=env,
         planner=build_llm(config.planner),
         config=config,
         memory=Memory.load(run_dir / "memory.json"),
         transcript_path=run_dir / "transcript.jsonl",
+        resume=resume,
     )
+    if resume and loop.report.resumed_from:
+        print(f"resuming {run_dir}: {loop.report.turns} turns already played", file=sys.stderr)
     report = loop.run(config.turns)
     loop.memory.save(run_dir / "memory.json")
     print(json.dumps(report.to_dict(), indent=2, default=str))
@@ -231,6 +235,11 @@ def build_parser() -> argparse.ArgumentParser:
     common(play)
     play.add_argument("--turns", type=int)
     play.add_argument("--days", type=int, help="in-game days per turn")
+    play.add_argument(
+        "--resume",
+        action="store_true",
+        help="continue an interrupted run in --run-dir, rebuilding state from its transcript",
+    )
     play.set_defaults(func=cmd_play)
 
     evaluate = sub.add_parser("eval", help="run a scenario and score it")
