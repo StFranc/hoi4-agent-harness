@@ -1,4 +1,13 @@
 {
+  "defensive_war": {
+    "harness_version": "0.1.0",
+    "objectives": {
+      "army_intact": false,
+      "front_held": false
+    },
+    "score": 0.0,
+    "turns": 40
+  },
   "economy_ramp": {
     "harness_version": "0.1.0",
     "objectives": {
@@ -8,6 +17,35 @@
       "stability_held": true
     },
     "score": 0.25,
+    "turns": 40
+  },
+  "rearmament_race": {
+    "harness_version": "0.1.0",
+    "objectives": {
+      "divisions_10": false,
+      "equipment_buffer": true,
+      "mil_factories_6": false
+    },
+    "score": 0.3333333333333333,
+    "turns": 80
+  },
+  "recovery": {
+    "harness_version": "0.1.0",
+    "objectives": {
+      "infantry_line_rebuilt": false,
+      "research_busy": false,
+      "stockpile_rebuilt": false
+    },
+    "score": 0.0,
+    "turns": 40
+  },
+  "resource_starved": {
+    "harness_version": "0.1.0",
+    "objectives": {
+      "production_kept_up": false,
+      "rubber_income": false
+    },
+    "score": 0.0,
     "turns": 40
   },
   "war_readiness": {

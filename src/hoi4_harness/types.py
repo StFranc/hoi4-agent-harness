@@ -66,6 +66,43 @@ class War:
 
 
 @dataclass
+class ScenarioStart:
+    """A described opening position, for scenarios that do not begin neutral.
+
+    A scenario carries one of these and hands it to an adapter that can begin
+    from a description (the mock does); ``None`` fields mean "whatever this
+    adapter's own default start is", so a start only has to state what makes it
+    different from that. Scalar fields replace, dict fields merge over the
+    adapter's defaults, list fields replace wholesale. Adapters that cannot
+    begin from a description ignore the idea entirely -- a real game starts
+    where its save or its bookmark says.
+    """
+
+    stability: float | None = None
+    war_support: float | None = None
+    political_power: float | None = None
+    manpower: int | None = None
+    civilian_factories: int | None = None
+    military_factories: int | None = None
+    dockyards: int | None = None
+    fuel: float | None = None
+    convoys: int | None = None
+    #: Merged over the adapter's own defaults; pass 0 to starve a resource.
+    resources: dict[str, int] | None = None
+    #: Merged over the adapter's own defaults.
+    stockpiles: dict[str, int] | None = None
+    research: list[ResearchSlot] | None = None
+    production: list[ProductionLine] | None = None
+    construction: list[ConstructionItem] | None = None
+    divisions: list[DivisionGroup] | None = None
+    fronts: list[Front] | None = None
+    wars: list[War] | None = None
+    #: Extra scripted history, date -> (kind, text, severity), merged over the
+    #: adapter's own script. This is how a scenario fixes its own war date.
+    events: dict[str, tuple[str, str, str]] | None = None
+
+
+@dataclass
 class GameEvent:
     """Something that happened since the last observation.
 
@@ -112,6 +149,9 @@ class GameState:
     production: list[ProductionLine] = field(default_factory=list)
     construction: list[ConstructionItem] = field(default_factory=list)
     stockpiles: dict[str, int] = field(default_factory=dict)
+    #: Daily resource income, in the shape of the game's resource bar. Adapters
+    #: that cannot see resources leave it empty.
+    resources: dict[str, int] = field(default_factory=dict)
     divisions: list[DivisionGroup] = field(default_factory=list)
     fronts: list[Front] = field(default_factory=list)
     wars: list[War] = field(default_factory=list)

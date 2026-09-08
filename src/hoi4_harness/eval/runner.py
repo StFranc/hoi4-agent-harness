@@ -25,7 +25,15 @@ def run_scenario(
         scenario = SCENARIOS[scenario]
 
     config = config or HarnessConfig()
-    adapter = MockAdapter(seed=scenario.seed, country=scenario.country, start=scenario.start)
+    # The scenario says how it is meant to be fought; a scenario whose answer
+    # lives in the hybrid vocabulary cannot run with those tools switched off.
+    config.operational_control = scenario.operational_control
+    adapter = MockAdapter(
+        seed=scenario.seed,
+        country=scenario.country,
+        start=scenario.start,
+        start_state=scenario.start_state,
+    )
     env = HOI4Env(adapter, config)
     env.reset()
 

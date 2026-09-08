@@ -48,6 +48,10 @@ def render_full(state: GameState, max_events: int = 6) -> str:
         )
     )
 
+    if state.resources:
+        detail = ", ".join(f"{k} {v}" for k, v in sorted(state.resources.items()))
+        lines.append(f"Resources: {detail}")
+
     if state.national_focus:
         lines.append(f"Focus: {state.national_focus} ({state.focus_days_remaining}d left)")
     else:

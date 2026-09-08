@@ -5,11 +5,17 @@ with the same *shape* as the real thing -- a clock, resources that accrue, queue
 that drain, events that fire -- so the loop, the policy layer, the budget guard and
 the eval runner can all be exercised without launching Paradox software.
 
+It always begins as the same neutral 1936 Sweden unless handed a
+``ScenarioStart``: a scenario's description of its own opening position (at war,
+with fronts, starved of resources, sabotaged). The mock interprets any described
+start; it never special-cases which scenario is speaking.
+
 Every test in this repo runs against it.
 """
 
 from __future__ import annotations
 
+import copy
 import datetime as dt
 import random
 
@@ -22,6 +28,7 @@ from ..types import (
     GameState,
     ProductionLine,
     ResearchSlot,
+    ScenarioStart,
 )
 from .base import AdapterInfo, GameAdapter
 
@@ -53,6 +60,7 @@ class MockAdapter(GameAdapter):
             "start_research",
             "queue_construction",
             "set_production",
+            "set_trade",
             "design_division_template",
             "deploy_divisions",
             "hire_advisor",
@@ -66,7 +74,16 @@ class MockAdapter(GameAdapter):
         }
     )
 
-    def __init__(self, seed: int = 1936, country: str = "SWE", start: str = "1936-01-01"):
+    def __init__(
+        self,
+        seed: int = 1936,
+        country: str = "SWE",
+        start: str = "1936-01-01",
+        start_state: ScenarioStart | None = None,
+    ):
+        """``start`` is the date; ``start_state`` is everything else a scenario
+        wants different about the opening position. Without one, this is the
+        same neutral 1936 Sweden it has always been."""
         self.rng = random.Random(seed)
         self.date = dt.date.fromisoformat(start)
         self.templates: dict[str, dict] = {
@@ -75,9 +92,12 @@ class MockAdapter(GameAdapter):
         self.state = GameState(
             date=start,
             country=country,
-            country_name={"SWE": "Sweden", "USA": "United States", "GER": "Germany"}.get(
-                country, country
-            ),
+            country_name={
+                "SWE": "Sweden",
+                "USA": "United States",
+                "GER": "Germany",
+                "FIN": "Finland",
+            }.get(country, country),
             political_power=25.0,
             stability=0.62,
             war_support=0.18,
@@ -94,9 +114,45 @@ class MockAdapter(GameAdapter):
             construction=[],
             stockpiles={"infantry_equipment_1": 4200, "support_equipment": 300},
             divisions=[DivisionGroup(template="Infantry", count=12, location="home")],
+            resources={"steel": 40, "aluminium": 25, "oil": 12, "rubber": 20,
+                       "tungsten": 10, "chromium": 12},
         )
+        self.scripted_events = dict(SCRIPTED_EVENTS)
         self._pending: list[GameEvent] = []
         self._advisor_pp_bonus = 0.0
+        self._trades: dict[str, int] = {}
+        self._attrition: dict[str, float] = {}
+        if start_state is not None:
+            self._apply_start(start_state)
+
+    def _apply_start(self, described: ScenarioStart) -> None:
+        """Lay a scenario's described start over the default one.
+
+        Scalars replace, dicts merge (a start states only what differs), lists
+        replace wholesale. The scenario owns the picture; nothing here knows or
+        cares which scenario is speaking.
+        """
+        s = self.state
+        for name in ("stability", "war_support", "political_power", "manpower",
+                     "civilian_factories", "military_factories", "dockyards",
+                     "fuel", "convoys"):
+            value = getattr(described, name)
+            if value is not None:
+                setattr(s, name, value)
+        if described.resources:
+            s.resources.update(described.resources)
+        if described.stockpiles:
+            s.stockpiles.update(described.stockpiles)
+        for name in ("research", "production", "construction", "divisions",
+                     "fronts", "wars"):
+            value = getattr(described, name)
+            if value is not None:
+                # Copied, not shared: the scenario object outlives the adapter,
+                # and a run that mutates its divisions must not poison the next
+                # run of the same scenario.
+                setattr(s, name, copy.deepcopy(value))
+        if described.events:
+            self.scripted_events.update(described.events)
 
     # --- adapter contract ----------------------------------------------------
 
@@ -169,15 +225,66 @@ class MockAdapter(GameAdapter):
                 self._finish_building(item)
                 s.construction.pop(0)
 
+        # Crudest possible shortage model: military lines run at half output
+        # while the country has no rubber. Rubber stands in for every resource a
+        # country must trade for or synthesise; half output is the entire
+        # theory. Oil is displayed but inert -- the mock has no fuel consumption
+        # to starve. ``resources`` is a daily-income view, like the game's
+        # resource bar, so nothing accrues into it here.
+        shortage = 0.5 if s.resources.get("rubber", 0) <= 0 else 1.0
         for line in s.production:
             line.efficiency = min(1.0, line.efficiency + 0.004)
-            line.output_per_day = round(line.factories * 4.5 * (0.35 + 0.65 * line.efficiency), 2)
+            line.output_per_day = round(
+                line.factories * 4.5 * (0.35 + 0.65 * line.efficiency) * shortage, 2
+            )
             got = int(line.output_per_day)
             s.stockpiles[line.equipment] = s.stockpiles.get(line.equipment, 0) + got
 
-        if iso in SCRIPTED_EVENTS:
-            kind, text, severity = SCRIPTED_EVENTS[iso]
+        if s.fronts:
+            self._tick_fronts()
+
+        if iso in self.scripted_events:
+            kind, text, severity = self.scripted_events[iso]
             self._emit(kind, text, severity)
+
+    def _tick_fronts(self) -> None:
+        """The mock's entire theory of land combat, and deliberately no more.
+
+        Armies delegated to the game AI on a defensive posture are shifted by
+        that AI onto the worst-pressed front; a front holds while it is not
+        outnumbered worse than two to one; a front that is losing ground bleeds
+        about a division every ten days. Nothing here resembles real combat: it
+        exists so a defensive scenario can ask whether the agent reinforced a
+        collapsing front, and score the answer.
+        """
+        s = self.state
+        if s.delegated_armies and s.posture == "defensive":
+            worst = max(s.fronts, key=lambda f: f.divisions_enemy - f.divisions_friendly)
+            for group in s.divisions:
+                if group.location in ("home", "unassigned"):
+                    group.location = worst.name
+        for front in s.fronts:
+            front.divisions_friendly = sum(
+                g.count for g in s.divisions if g.location == front.name
+            )
+            holds = front.divisions_friendly * 2 >= front.divisions_enemy
+            front.pressure = "stable" if holds else "losing_ground"
+            if not holds:
+                self._attrition[front.name] = self._attrition.get(front.name, 0.0) + 0.1
+                if self._attrition[front.name] >= 1.0 and self._bleed_one_division(front.name):
+                    self._attrition[front.name] -= 1.0
+
+    def _bleed_one_division(self, front_name: str) -> bool:
+        """Destroy one division on a front that is giving ground. False: nobody left."""
+        groups = [g for g in self.state.divisions if g.location == front_name and g.count > 0]
+        if not groups:
+            return False
+        victim = max(groups, key=lambda g: g.count)
+        victim.count -= 1
+        self.state.divisions = [g for g in self.state.divisions if g.count > 0]
+        self._emit("front_casualties", f"A division was destroyed on the {front_name} front.",
+                   "notable")
+        return True
 
     def _finish_building(self, item: ConstructionItem) -> None:
         s = self.state
@@ -187,6 +294,10 @@ class MockAdapter(GameAdapter):
             s.military_factories += 1
         elif item.building == "dockyard":
             s.dockyards += 1
+        elif item.building == "synthetic_refinery":
+            # A finished refinery yields rubber the country cannot otherwise
+            # make; that is the whole of the mock's synthetics.
+            s.resources["rubber"] = s.resources.get("rubber", 0) + 12
         self._emit("construction_done", f"{item.building} finished in {item.state}", "info")
 
     def _emit(self, kind: str, text: str, severity: str = "info") -> None:
@@ -261,6 +372,34 @@ class MockAdapter(GameAdapter):
             self.state.production.append(ProductionLine(equipment=equipment, factories=factories))
         return self._ok(call, f"{equipment}: {factories} factories.", equipment=equipment)
 
+    def _do_set_trade(self, call: ActionCall) -> ActionResult:
+        """The crudest possible trade: each civilian factory committed buys a
+        flat 4 units of the resource a day and is lost to construction while the
+        trade runs. Re-trading a resource is the only way to change or cancel
+        one -- the catalog has no un-trade -- and there is no world market to
+        run out of."""
+        resource = call.arguments["resource"]
+        factories = int(call.arguments["factories"])
+        committed = self._trades.get(resource, 0)
+        free = self.state.civilian_factories + committed
+        if factories > free:
+            return self._fail(
+                call,
+                f"Only {free} civilian factories are free to trade; "
+                f"{committed} already buy {resource}.",
+            )
+        self.state.civilian_factories = free - factories
+        self._trades[resource] = factories
+        s = self.state
+        s.resources[resource] = s.resources.get(resource, 0) + 4 * (factories - committed)
+        return self._ok(
+            call,
+            f"{factories} civilian factories now buy {resource} from "
+            f"{call.arguments['from_country']}.",
+            resource=resource,
+            factories=factories,
+        )
+
     def _do_design_division_template(self, call: ActionCall) -> ActionResult:
         name = call.arguments["name"]
         battalions = call.arguments.get("battalions", [])
@@ -273,6 +412,7 @@ class MockAdapter(GameAdapter):
     def _do_deploy_divisions(self, call: ActionCall) -> ActionResult:
         template = call.arguments["template"]
         count = int(call.arguments["count"])
+        location = call.arguments.get("location", "home")
         if template not in self.templates:
             return self._fail(call, f"No template named '{template}'.", "invalid_args")
         need = count * self.templates[template]["battalions"] * 100
@@ -281,14 +421,16 @@ class MockAdapter(GameAdapter):
             return self._fail(call, f"Need {need} equipment, have {have}.")
         self.state.stockpiles["infantry_equipment_1"] = have - need
         group = next(
-            (g for g in self.state.divisions if g.template == template and g.location == "home"),
+            (g for g in self.state.divisions if g.template == template and g.location == location),
             None,
         )
         if group:
             group.count += count
         else:
-            self.state.divisions.append(DivisionGroup(template=template, count=count))
-        return self._ok(call, f"Deploying {count}x {template}.", equipment_spent=need)
+            self.state.divisions.append(
+                DivisionGroup(template=template, count=count, location=location)
+            )
+        return self._ok(call, f"Deploying {count}x {template} to {location}.", equipment_spent=need)
 
     def _do_hire_advisor(self, call: ActionCall) -> ActionResult:
         cost = 150.0
