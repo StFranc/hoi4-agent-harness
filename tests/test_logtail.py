@@ -106,7 +106,7 @@ def test_it_refuses_to_act(tmp_path):
 # --- finding the game, on a real Windows install ----------------------------
 
 def test_documents_redirected_into_onedrive_is_searched(monkeypatch, tmp_path):
-    """Checked against a real install: the only copy of the game's user
+    r"""Checked against a real install: the only copy of the game's user
     directory was under OneDrive\Documents, which the old defaults never
     looked at."""
     from hoi4_harness import paths
