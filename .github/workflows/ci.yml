@@ -56,8 +56,12 @@ jobs:
       - name: assert the runs did something
         run: python .github/scripts/check_run.py runs/direct runs/hybrid runs/eval
 
+      # The transcripts are a convenience for reading a failed run, not a gate.
+      # GitHub's artifact storage answered 403 on a finalize once and turned a
+      # green run red, which is the one thing CI must never do.
       - uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: transcripts
           path: runs/

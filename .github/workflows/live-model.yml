@@ -85,6 +85,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         if: always() && steps.keys.outputs.run == 'true'
+        continue-on-error: true
         with:
           name: live-transcript
           path: runs/live
