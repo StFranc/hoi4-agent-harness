@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -86,6 +87,7 @@ class AgentLoop:
         config: HarnessConfig | None = None,
         memory: Memory | None = None,
         transcript_path: Path | None = None,
+        progress: Callable[[str], None] | None = None,
         resume: bool = False,
     ):
         self.env = env
@@ -97,6 +99,7 @@ class AgentLoop:
             )
         self.planner = planner
         self.memory = memory or Memory()
+        self.progress = progress  # optional per-turn line for humans, e.g. to stderr
         self.policy = Policy(
             days_per_turn=self.config.days_per_turn,
             wake_on_no_focus=self.config.wake_on_no_focus,
@@ -158,23 +161,33 @@ class AgentLoop:
 
         for _ in range(turns):
             state = self.env.read_state()
+            turn_date = state.date
             decision = self.policy.should_wake(state, days_since_planner)
             blocked = self.budget.why_blocked()
+            downgraded = bool(decision.wake and blocked)
 
-            if decision.wake and blocked:
+            if downgraded:
                 self.transcript.write("budget_downgrade", reason=blocked, date=state.date)
                 decision.wake = False
 
             if decision.wake:
-                self._planner_turn(decision.reason)
+                actions, turn_tokens = self._planner_turn(decision.reason)
                 days_since_planner = 0
             else:
-                self._reflex_turn(decision.reason)
+                actions, turn_tokens = self._reflex_turn(decision.reason)
                 days_since_planner += self.config.days_per_turn
 
             state = self.env.advance()
             self.report.turns += 1
             self.report.end_date = state.date
+            if self.progress:
+                if decision.wake:
+                    marker = f"wake: {decision.reason}"
+                elif downgraded:
+                    marker = f"reflex (budget: {blocked})"
+                else:
+                    marker = "reflex"
+                self.progress(self._progress_line(turn_date, marker, actions, turn_tokens))
             self.transcript.write("turn_end", date=state.date, turn=self.report.turns)
             self._checkpoint()
 
@@ -187,7 +200,7 @@ class AgentLoop:
 
     # --- one turn ------------------------------------------------------------
 
-    def _reflex_turn(self, reason: str) -> None:
+    def _reflex_turn(self, reason: str) -> tuple[list[str], int]:
         self.report.reflex_turns += 1
         state = self.env.read_state()
         calls = self.policy.reflex_actions(state)
@@ -198,7 +211,7 @@ class AgentLoop:
             calls = []
         if not calls:
             self.transcript.write("skip", date=state.date, reason=reason)
-            return
+            return [], 0
         results = self.env.act_many(calls)
         self._tally(results)
         self.transcript.write(
@@ -208,8 +221,10 @@ class AgentLoop:
             actions=[c.to_dict() for c in calls],
             results=[r.to_dict() for r in results],
         )
+        names = [f"{r.action}{'' if r.ok else ' (rejected)'}" for r in results]
+        return names, 0
 
-    def _planner_turn(self, reason: str) -> None:
+    def _planner_turn(self, reason: str) -> tuple[list[str], int]:
         observation = self.env.observe()
         # Adapters hand back a live reference to their own GameState, which keeps
         # mutating as this turn's actions run. Capture the date now: journalling
@@ -252,6 +267,7 @@ class AgentLoop:
         )
 
         taken: list[str] = []
+        turn_tokens = 0
         for _round in range(self.config.max_tool_rounds_per_turn):
             if not self.budget.allows_call():
                 break
@@ -259,10 +275,10 @@ class AgentLoop:
                 response = self.planner.complete(self.system, messages, tools)
             except Exception as exc:  # noqa: BLE001 - the provider is not ours
                 self._record_llm_failure(exc, turn_date)
-                self._reflex_fallback(f"model call failed: {type(exc).__name__}")
-                return
+                return self._reflex_fallback(f"model call failed: {type(exc).__name__}")
             self._consecutive_errors = 0
             self.budget.record(response.usage)
+            turn_tokens += response.usage.input_tokens + response.usage.output_tokens
             self.report.planner_calls += 1
             self.transcript.write(
                 "llm",
@@ -325,6 +341,20 @@ class AgentLoop:
             messages.append(Msg(role="user", tool_results=results))
 
         self.memory.record_turn(turn_date, taken)
+        return taken, turn_tokens
+
+    def _progress_line(self, date: str, marker: str, actions: list[str], tokens: int) -> str:
+        if tokens >= 1000:
+            tok = f"{tokens / 1000:.1f}k tok"
+        else:
+            tok = f"{tokens} tok" if tokens else "-"
+        actions_text = ", ".join(actions) or "-"
+        if len(actions_text) > 60:
+            # A busy turn can list a dozen calls. The point of this line is that
+            # a person can read it while the run goes past, so keep it one line
+            # wide -- the transcript has the full list.
+            actions_text = f"{actions_text[:57]}... ({len(actions)})"
+        return f"{date}  {marker:<30} {actions_text:<30}  {tok:<9} ${self.budget.spend.usd:.2f}"
 
     # --- failure handling ----------------------------------------------------
 
@@ -352,13 +382,18 @@ class AgentLoop:
                 f"last was {describe(exc)}"
             )
 
-    def _reflex_fallback(self, reason: str) -> None:
-        """Play the turn for free rather than losing it."""
+    def _reflex_fallback(self, reason: str) -> tuple[list[str], int]:
+        """Play the turn for free rather than losing it.
+
+        Returns what the progress line needs, like the two turn methods: the
+        model produced nothing, so the token count is zero whatever it cost to
+        find that out.
+        """
         state = self.env.read_state()
         calls = self.policy.reflex_actions(state)
         if not calls:
             self.transcript.write("skip", date=state.date, reason=reason)
-            return
+            return [], 0
         results = self.env.act_many(calls)
         self._tally(results)
         self.transcript.write(
@@ -366,6 +401,7 @@ class AgentLoop:
             actions=[c.to_dict() for c in calls],
             results=[r.to_dict() for r in results],
         )
+        return [f"{r.action}{'' if r.ok else ' (rejected)'}" for r in results], 0
 
     def _checkpoint(self) -> None:
         """Persist memory after every turn, not once at the end.

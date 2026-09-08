@@ -13,13 +13,12 @@ Nothing in the core imports a vendor SDK; providers are loaded lazily.
 
 __version__ = "0.1.0"
 
-from .types import ActionCall, ActionResult, GameState, Observation, StepResult
+from .types import ActionCall, ActionResult, GameState, Observation
 
 __all__ = [
     "ActionCall",
     "ActionResult",
     "GameState",
     "Observation",
-    "StepResult",
     "__version__",
 ]

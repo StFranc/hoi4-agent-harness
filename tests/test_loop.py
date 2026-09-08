@@ -1,3 +1,4 @@
+from hoi4_harness.actions import catalog
 from hoi4_harness.adapters.mock import MockAdapter
 from hoi4_harness.agent.llm.base import LLMResponse, ToolCall, Usage
 from hoi4_harness.agent.llm.scripted import ScriptedClient
@@ -98,3 +99,37 @@ def test_a_note_is_journalled_under_the_date_of_the_turn_that_wrote_it():
     start = env.read_state().date
     loop.run(1)
     assert loop.memory.journal[0].date == start
+def test_a_wake_turn_leaves_a_progress_line():
+    lines: list[str] = []
+    loop, _env = make_loop()
+    loop.progress = lines.append
+    loop.run(2)
+    assert len(lines) == 2
+    assert lines[0].startswith("1936-01-01")
+    assert "wake: no national focus is running" in lines[0]
+    # Which actions a wake produces depends on what the brief showed, so assert
+    # the line reports some and carries the token and cost columns.
+    assert any(name in lines[0] for name in (spec.name for spec in catalog.ACTIONS))
+    assert " tok" in lines[0]
+    assert lines[0].endswith("$0.00")
+
+
+def test_a_reflex_turn_leaves_a_progress_line_without_a_token_column():
+    lines: list[str] = []
+    loop, _env = make_loop(wake_on_no_focus=False, wake_on_free_research_slot=False)
+    loop.progress = lines.append
+    loop.run(2)
+    assert len(lines) == 2
+    assert "wake:" not in lines[1]        # a reflex turn is not a wake
+    assert " tok" not in lines[1]         # and spends no tokens
+    assert lines[1].endswith("$0.00")
+
+
+def test_a_budget_downgrade_says_why_in_its_progress_line():
+    lines: list[str] = []
+    loop, _env = make_loop()
+    loop.progress = lines.append
+    loop.budget.config = BudgetConfig(max_llm_calls=1)
+    loop.run(2)
+    assert "reflex (budget: call ceiling reached (1))" in lines[1]
+    assert "wake:" not in lines[1]

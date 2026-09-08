@@ -191,11 +191,3 @@ class ActionResult:
         if self.error_kind:
             payload["error"] = self.error_kind
         return json.dumps(payload, sort_keys=True)
-
-
-@dataclass
-class StepResult:
-    observation: Observation
-    results: list[ActionResult] = field(default_factory=list)
-    done: bool = False
-    info: dict[str, Any] = field(default_factory=dict)

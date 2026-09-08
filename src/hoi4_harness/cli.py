@@ -164,6 +164,10 @@ def cmd_play(args: argparse.Namespace) -> int:
     env.reset()
     run_dir = config.run_dir
     resume = bool(getattr(args, "resume", False))
+
+    def echo(line: str) -> None:
+        print(line, file=sys.stderr)      # stdout stays the final JSON, for piping
+
     loop = AgentLoop(
         env=env,
         planner=build_llm(config.planner) if config.planner_enabled else None,
@@ -171,6 +175,7 @@ def cmd_play(args: argparse.Namespace) -> int:
         memory=Memory.load(run_dir / "memory.json"),
         transcript_path=run_dir / "transcript.jsonl",
         resume=resume,
+        progress=None if args.quiet else echo,
     )
     if resume and loop.report.resumed_from:
         print(f"resuming {run_dir}: {loop.report.turns} turns already played", file=sys.stderr)
@@ -322,6 +327,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="continue an interrupted run in --run-dir, rebuilding state from its transcript",
     )
+    play.add_argument("--quiet", action="store_true",
+                      help="no per-turn progress line on stderr")
     play.set_defaults(func=cmd_play)
 
     replay = sub.add_parser("replay", help="replay one turn from a transcript and compare models")
