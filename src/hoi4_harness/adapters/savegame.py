@@ -18,27 +18,21 @@ Constraints worth knowing before you build on this:
 
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 
+from ..paths import find_in_game_dir
 from ..types import ActionCall, ActionResult, GameState
 from .base import AdapterInfo, GameAdapter
 
 TOKEN = re.compile(r'"[^"]*"|[{}=]|[^\s{}=]+')
 
-DEFAULT_SAVE_DIRS = [
-    Path.home() / "Documents" / "Paradox Interactive" / "Hearts of Iron IV" / "save games",
-    Path(os.environ.get("USERPROFILE", "")) / "Documents" / "Paradox Interactive"
-    / "Hearts of Iron IV" / "save games",
-]
+
 
 
 def find_save_dir(explicit: Path | None = None) -> Path | None:
-    for candidate in ([explicit] if explicit else []) + DEFAULT_SAVE_DIRS:
-        if candidate and candidate.is_dir():
-            return candidate
-    return None
+    """Locate the save folder, including a Documents redirected into OneDrive."""
+    return find_in_game_dir("save games", explicit=explicit)
 
 
 def latest_save(save_dir: Path) -> Path | None:

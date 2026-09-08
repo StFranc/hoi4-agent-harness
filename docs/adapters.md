@@ -45,6 +45,17 @@ version mismatch raises, an unexpanded script token is marked unknown rather
 than read as zero, and fields the mod does not emit yet are declared unknown up
 front.
 
+### Finding the game
+
+Both the log-tail and savegame adapters locate the game's user directory through
+`hoi4_harness.paths`, which searches OneDrive-redirected Documents as well as the
+plain one. That is not hypothetical: on the machine this was checked against, the
+only copy lived under `OneDrive\Documents` and every previous default missed it.
+
+A path you supply explicitly is used or it fails — discovery never runs as a
+fallback, because searching on after you named a directory would mean reading a
+different campaign than the one you pointed at.
+
 ## savegame — parser done, mapping TODO
 
 Reads the most recent `*.hoi4` autosave. `parse_clausewitz()` handles Paradox's

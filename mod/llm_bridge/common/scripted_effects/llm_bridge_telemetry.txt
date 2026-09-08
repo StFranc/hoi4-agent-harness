@@ -8,6 +8,11 @@
 # number. A token the game does not recognise prints literally, which the parser
 # treats as a missing field (reported as "unknown") rather than as a zero.
 #
+# The date field is belt-and-braces. The engine already stamps every log line
+# with the in-game date -- [17:34:20][1944.05.16.01][file.cpp:123] -- and the
+# harness reads that prefix in preference to anything printed here, so a date
+# token that fails to expand costs nothing. Verified against a running game.
+#
 # Bump LLMB_SCHEMA_VERSION whenever the field set changes, and bump
 # SCHEMA_VERSION in hoi4_harness/adapters/logtail.py to match. They are compared
 # at runtime.

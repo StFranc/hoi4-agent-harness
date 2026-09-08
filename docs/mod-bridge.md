@@ -44,6 +44,10 @@ LLMB|v1|evt|tag=SWE|kind=1|detail=Germany declared war
 Rules the parser holds to, all of them tested in
 [`tests/test_logtail.py`](../tests/test_logtail.py):
 
+- **The date comes from the engine, not the mod.** Every log line is stamped
+  `[17:34:20][1944.05.16.01][file.cpp:123]` by the game itself, and the parser
+  reads that in preference to any `date=` field. One less script token that has
+  to be right.
 - **Version match or refuse.** `LLMB_SCHEMA_VERSION` in the mod and
   `SCHEMA_VERSION` in `adapters/logtail.py` are compared on every line. A
   mismatch raises rather than guessing.
@@ -68,8 +72,6 @@ unrecognised token prints literally, an unknown `ai_strategy` type is ignored.
 So before a run that matters, check against `common/` in your own install:
 
 - the resource variables in `llm_bridge_telemetry.txt`;
-- the date token, and whether it produces `1936.2.14` or a localised string
-  (the parser accepts several shapes and returns nothing rather than guessing);
 - the `on_action` names in `llm_bridge_on_actions.txt`;
 - the `ai_strategy` types in `llm_bridge_directives.txt`.
 

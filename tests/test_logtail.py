@@ -1,6 +1,12 @@
 import pytest
 
-from hoi4_harness.adapters.logtail import SCHEMA_VERSION, LogTailAdapter, parse_date, parse_line
+from hoi4_harness.adapters.logtail import (
+    SCHEMA_VERSION,
+    LogTailAdapter,
+    engine_date,
+    parse_date,
+    parse_line,
+)
 
 STATE = (
     "[messagehandler.cpp:290]: LLMB|v1|state|date=1936.2.14|tag=SWE|pp=42|stab=63|ws=18"
@@ -95,3 +101,59 @@ def test_it_refuses_to_act(tmp_path):
     adapter = LogTailAdapter(write_log(tmp_path, STATE))
     result = adapter.apply(ActionCall("set_production", {"equipment": "x", "factories": 1}))
     assert not result.ok and result.error_kind == "unsupported"
+
+
+# --- finding the game, on a real Windows install ----------------------------
+
+def test_documents_redirected_into_onedrive_is_searched(monkeypatch, tmp_path):
+    """Checked against a real install: the only copy of the game's user
+    directory was under OneDrive\Documents, which the old defaults never
+    looked at."""
+    from hoi4_harness import paths
+
+    redirected = tmp_path / "OneDrive"
+    game = redirected / "Documents" / paths.GAME_DIR / "logs"
+    game.mkdir(parents=True)
+    (game / "game.log").write_text("", encoding="utf-8")
+
+    monkeypatch.setenv("OneDrive", str(redirected))
+    monkeypatch.setattr(paths.Path, "home", classmethod(lambda cls: tmp_path / "elsewhere"))
+    monkeypatch.delenv("USERPROFILE", raising=False)
+
+    assert paths.find_in_game_dir("logs", "game.log") == game / "game.log"
+
+
+def test_an_explicit_path_that_does_not_exist_never_falls_back(tmp_path):
+    """Searching on after the operator named a path would read a different
+    campaign than the one they pointed at."""
+    from hoi4_harness.paths import find_in_game_dir
+
+    assert find_in_game_dir("logs", "game.log", explicit=tmp_path / "nope.log") is None
+
+
+def test_the_engine_stamps_the_game_date_on_every_line():
+    """A real line from a running game. The date in the prefix is the engine's
+    own, so it cannot be broken by a mod token that failed to expand."""
+    line = "[17:34:20][1944.05.16.01][effectbase.cpp:1783]: checking if FF approaches someone"
+    assert engine_date(line) == "1944-05-16"
+
+
+def test_a_line_written_before_the_game_started_has_no_date():
+    assert engine_date("[15:48:53][no_game_date][defines.cpp:270]: 4469 defines loaded") is None
+
+
+def test_the_four_part_game_date_is_understood():
+    """The log prefix carries Y.M.D.H; the hour is noise for a daily harness."""
+    assert parse_date("1944.05.16.01") == "1944-05-16"
+    assert parse_date("1936.1.1.12") == "1936-01-01"
+
+
+def test_the_engine_date_wins_over_a_mod_field(tmp_path):
+    """If the mod's date token did not expand, the prefix still has the truth."""
+    path = tmp_path / "game.log"
+    path.write_text(
+        "[08:00:00][1937.03.09.12][messagehandler.cpp:290]: "
+        "LLMB|v1|state|date=[?broken]|tag=SWE|pp=10\n",
+        encoding="utf-8",
+    )
+    assert LogTailAdapter(path).read_state().date == "1937-03-09"
