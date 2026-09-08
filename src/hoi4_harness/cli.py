@@ -3,6 +3,7 @@
     hoi4-harness doctor                     what is installed and reachable
     hoi4-harness actions                    the agent's vocabulary
     hoi4-harness observe                    one situation brief, then exit
+    hoi4-harness calibrate                  record screen coordinates for clicking
     hoi4-harness play --turns 20            run the loop
     hoi4-harness replay run.jsonl --turn 3  rebuild a turn's prompt, compare models
     hoi4-harness eval economy_ramp          run a scenario and score it
@@ -24,6 +25,7 @@ from .adapters import ADAPTERS, build_adapter
 from .agent.llm import PROVIDERS, build_llm
 from .agent.loop import AgentLoop
 from .agent.memory import Memory
+from .calibration import DEFAULT_FILENAME, DEFAULT_TARGETS
 from .config import HarnessConfig
 from .env import HOI4Env
 from .guidance import available as guidance_packs
@@ -219,6 +221,23 @@ def cmd_prompt(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_calibrate(args: argparse.Namespace) -> int:
+    from .calibration import capture_calibration, save_calibration
+
+    config = _config_from_args(args)
+    out = Path(args.out) if args.out else config.run_dir / DEFAULT_FILENAME
+    targets = args.targets or DEFAULT_TARGETS
+    try:
+        calibration = capture_calibration(targets)
+    except RuntimeError as exc:  # most likely the missing 'input' extra; report, don't crash
+        print(f"calibrate FAILED   {type(exc).__name__}: {exc}")
+        return 1
+    save_calibration(calibration, out)
+    width, height = calibration.screen
+    print(f"Wrote {len(calibration.coordinates)} targets at {width}x{height} to {out}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="hoi4-harness", description=__doc__)
     parser.add_argument("--version", action="version", version=__version__)
@@ -295,6 +314,14 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("scenario", nargs="?")
     evaluate.add_argument("--strict", action="store_true", help="exit 1 unless every objective passes")
     evaluate.set_defaults(func=cmd_eval)
+
+    calibrate = sub.add_parser("calibrate", help="record screen coordinates for the input driver")
+    common(calibrate)
+    calibrate.add_argument("targets", nargs="*", metavar="TARGET",
+                           help="targets to record (default: " + ", ".join(DEFAULT_TARGETS) + ")")
+    calibrate.add_argument("--out", metavar="PATH",
+                           help=f"where to write (default: <run-dir>/{DEFAULT_FILENAME})")
+    calibrate.set_defaults(func=cmd_calibrate)
 
     return parser
 

@@ -75,7 +75,9 @@ routine ticks.
 
 The write side. Hotkeys (`HOTKEYS`) are preferred over coordinates because they
 survive resolution and UI-scale changes; coordinates live in a calibration dict,
-not in code. `dry_run=True` logs intended input without sending it, which is how
+not in code — `hoi4-harness calibrate` writes it (with the screen resolution it
+was captured at), and loading a calibration from another resolution is refused
+rather than applied. `dry_run=True` logs intended input without sending it, which is how
 the tests and the default CLI run.
 
 Input is gated on window focus. Before anything is sent, the adapter checks that

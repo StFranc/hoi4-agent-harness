@@ -8,13 +8,17 @@ success.
 
 Hotkeys are far more reliable than coordinates and should be preferred wherever
 the game exposes one. Coordinates are resolution- and UI-scale-dependent and
-belong in a calibration file, not in code.
+belong in a calibration file, not in code; ``load_calibration`` fills
+``InputConfig.coordinates`` from that file and refuses one captured at another
+resolution.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
+from ..calibration import load_calibration, screen_size
 from ..types import ActionCall, ActionResult, GameState
 from .base import AdapterInfo, GameAdapter
 from .window import FocusCheck, check_focus
@@ -127,6 +131,22 @@ class InputDriverAdapter(GameAdapter):
             gui = self._gui()
             gui.moveTo(point[0], point[1], duration=self.config.move_duration)
             gui.click()
+
+    def load_calibration(
+        self, path: Path, *, current_resolution: tuple[int, int] | None = None
+    ) -> None:
+        """Populate ``config.coordinates`` from a calibration file, refusing a stale one.
+
+        ``current_resolution`` stands in for the real screen -- what tests inject.
+        Without it a live run probes the screen (so it needs the 'input' extra to
+        load at all), while a dry run skips the probe: it sends no clicks, so a
+        stale calibration cannot misfire there.
+        """
+        resolution = current_resolution
+        if resolution is None and not self.dry_run:
+            resolution = screen_size()
+        calibration = load_calibration(path, current_resolution=resolution)
+        self.config.coordinates = dict(calibration.coordinates)
 
     def read_state(self) -> GameState:
         raise NotImplementedError("Write-only adapter; compose it with a reader.")
