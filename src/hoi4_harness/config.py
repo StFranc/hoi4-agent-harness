@@ -149,6 +149,9 @@ class HarnessConfig:
     full_brief_every: int = 8
     wake_on_free_research_slot: bool = True
     wake_on_no_focus: bool = True
+    # False is the reflex-only baseline: the model is never woken and the run is
+    # free, which is what every planner-run score is reported against.
+    planner_enabled: bool = True
     reflex_enabled: bool = True
 
     # --- run ----------------------------------------------------------------
@@ -188,6 +191,7 @@ class HarnessConfig:
             system_prompt_path=Path(system_prompt_path) if system_prompt_path else None,
             objective=os.environ.get("HOI4_OBJECTIVE") or cls.objective,
             require_confirmation=_env_bool("HOI4_REQUIRE_CONFIRMATION", True),
+            planner_enabled=_env_bool("HOI4_PLANNER_ENABLED", True),
             days_per_turn=_env_int("HOI4_DAYS_PER_TURN", 7),
             max_actions_per_turn=_env_int("HOI4_MAX_ACTIONS_PER_TURN", 8),
             max_tool_rounds_per_turn=_env_int("HOI4_MAX_TOOL_ROUNDS", 3),

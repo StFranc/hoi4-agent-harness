@@ -7,6 +7,7 @@
     hoi4-harness play --turns 20            run the loop
     hoi4-harness replay run.jsonl --turn 3  rebuild a turn's prompt, compare models
     hoi4-harness eval economy_ramp          run a scenario and score it
+    hoi4-harness eval --no-llm              score every scenario on reflexes alone
 
 Everything defaults to the mock adapter and the scripted model, so a fresh clone
 does something useful with no API key and no game installed.
@@ -76,6 +77,8 @@ def _config_from_args(args: argparse.Namespace) -> HarnessConfig:
         config.reflex_enabled = False
     if getattr(args, "player_clock", False):
         config.clock_owner = "player"
+    if getattr(args, "no_llm", False):
+        config.planner_enabled = False
     if getattr(args, "country", None):
         config.country = args.country
     if getattr(args, "start_date", None):
@@ -90,7 +93,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     print(f"hoi4-agent-harness {__version__}")
     print(f"python           {sys.version.split()[0]}")
     print(f"adapter          {config.adapter}")
-    print(f"planner          {config.planner.provider}:{config.planner.model}")
+    planner = f"{config.planner.provider}:{config.planner.model}"
+    print(f"planner          {planner if config.planner_enabled else 'disabled (reflex only)'}")
     print(f"dry run          {config.dry_run}")
     print(f"clock owner      {config.clock_owner}")
     print(f"guidance         {config.system_prompt_path or config.guidance}")
@@ -160,7 +164,7 @@ def cmd_play(args: argparse.Namespace) -> int:
     resume = bool(getattr(args, "resume", False))
     loop = AgentLoop(
         env=env,
-        planner=build_llm(config.planner),
+        planner=build_llm(config.planner) if config.planner_enabled else None,
         config=config,
         memory=Memory.load(run_dir / "memory.json"),
         transcript_path=run_dir / "transcript.jsonl",
@@ -193,16 +197,29 @@ def cmd_replay(args: argparse.Namespace) -> int:
 
 
 def cmd_eval(args: argparse.Namespace) -> int:
-    from .eval import SCENARIOS, run_scenario
+    from .eval import SCENARIOS, ScoreCard, run_scenario, write_baselines
 
     config = _config_from_args(args)
+    if getattr(args, "write_baseline", False) and config.planner_enabled:
+        # A baseline recorded from a model run would corrupt the thing every
+        # score is compared against, so refuse rather than quietly mis-record.
+        print(
+            "--write-baseline records reflex-only scores; pass --no-llm to measure them.",
+            file=sys.stderr,
+        )
+        return 2
+
     keys = [args.scenario] if args.scenario else list(SCENARIOS)
     failed = 0
+    cards: dict[str, ScoreCard] = {}
     for key in keys:
         card = run_scenario(key, config, transcript_dir=config.run_dir)
         print(card.render())
         print()
         failed += card.score < 1.0
+        cards[key] = card
+    if getattr(args, "write_baseline", False):
+        write_baselines(cards)
     return 0 if not args.strict else min(failed, 1)
 
 
@@ -270,6 +287,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="disable the deterministic reflex layer; the model decides everything")
         p.add_argument("--player-clock", dest="player_clock", action="store_true",
                        help="a person is playing: never pause, resume or set game speed")
+        p.add_argument("--no-llm", dest="no_llm", action="store_true",
+                       help="never wake the planner: reflexes only, zero model calls")
         p.add_argument("--country", help="country tag (mock adapter)")
         p.add_argument("--start-date", dest="start_date", help="start date (mock adapter)")
         p.add_argument("--seed", type=int, help="mock adapter seed")
@@ -313,6 +332,8 @@ def build_parser() -> argparse.ArgumentParser:
     common(evaluate)
     evaluate.add_argument("scenario", nargs="?")
     evaluate.add_argument("--strict", action="store_true", help="exit 1 unless every objective passes")
+    evaluate.add_argument("--write-baseline", dest="write_baseline", action="store_true",
+                          help="record the reflex-only scores as the committed baseline (needs --no-llm)")
     evaluate.set_defaults(func=cmd_eval)
 
     calibrate = sub.add_parser("calibrate", help="record screen coordinates for the input driver")

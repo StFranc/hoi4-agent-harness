@@ -1,0 +1,23 @@
+{
+  "economy_ramp": {
+    "harness_version": "0.1.0",
+    "objectives": {
+      "civ_factories_20": false,
+      "focus_running": false,
+      "research_busy": false,
+      "stability_held": true
+    },
+    "score": 0.25,
+    "turns": 40
+  },
+  "war_readiness": {
+    "harness_version": "0.1.0",
+    "objectives": {
+      "divisions_36": false,
+      "equipment_buffer": true,
+      "mil_factories_15": false
+    },
+    "score": 0.3333333333333333,
+    "turns": 180
+  }
+}

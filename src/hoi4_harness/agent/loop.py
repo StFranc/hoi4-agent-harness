@@ -9,6 +9,10 @@ One iteration is one *decision point*, not one game-day:
 Within a wake, the model gets a small number of tool rounds so it can react to a
 rejected action, then the turn ends whether or not it called advance_time. The
 harness always takes the clock back.
+
+With ``planner_enabled`` False the wake rule never fires: every turn takes the
+reflex path, no model is ever called, and the run is the baseline that scored
+runs are reported against.
 """
 
 from __future__ import annotations
@@ -77,21 +81,27 @@ class AgentLoop:
     def __init__(
         self,
         env: HOI4Env,
-        planner: LLMClient,
+        planner: LLMClient | None,
         config: HarnessConfig | None = None,
         memory: Memory | None = None,
         transcript_path: Path | None = None,
         resume: bool = False,
     ):
         self.env = env
-        self.planner = planner
         self.config = config or HarnessConfig()
+        if planner is None and self.config.planner_enabled:
+            raise ValueError(
+                "planner_enabled is on but no planner was given: pass a client, or set "
+                "planner_enabled=False for a reflex-only run"
+            )
+        self.planner = planner
         self.memory = memory or Memory()
         self.policy = Policy(
             days_per_turn=self.config.days_per_turn,
             wake_on_no_focus=self.config.wake_on_no_focus,
             wake_on_free_research_slot=self.config.wake_on_free_research_slot,
             reflex_enabled=self.config.reflex_enabled,
+            planner_enabled=self.config.planner_enabled,
         )
         self.system = build_system(
             guidance=self.config.guidance,

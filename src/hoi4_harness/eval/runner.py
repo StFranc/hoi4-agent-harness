@@ -9,6 +9,7 @@ from ..agent.llm import build_llm
 from ..agent.loop import AgentLoop
 from ..config import HarnessConfig
 from ..env import HOI4Env
+from .baselines import attach_baseline
 from .metrics import ScoreCard, score
 from .scenarios import SCENARIOS, Scenario
 
@@ -33,10 +34,13 @@ def run_scenario(
     )
     loop = AgentLoop(
         env=env,
-        planner=build_llm(config.planner),
+        # planner_enabled=False runs the scenario on reflexes alone: no client is
+        # built, so a baseline run costs nothing and needs no API key.
+        planner=build_llm(config.planner) if config.planner_enabled else None,
         config=config,
         transcript_path=transcript,
     )
     loop.config.objective = scenario.briefing
     report = loop.run(scenario.turns)
-    return score(scenario, env.read_state(), report)
+    card = score(scenario, env.read_state(), report)
+    return attach_baseline(card, scenario)

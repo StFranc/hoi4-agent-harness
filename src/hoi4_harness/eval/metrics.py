@@ -28,9 +28,17 @@ class ScoreCard:
     tokens_in: int = 0
     tokens_out: int = 0
     usd: float = 0.0
+    # The recorded reflex-only score for this scenario, when there is one; a raw
+    # number means nothing without it. ``baseline_note`` says why a recorded
+    # baseline was left out of the comparison.
+    baseline: float | None = None
+    baseline_note: str | None = None
 
     def render(self) -> str:
-        lines = [f"{self.scenario}: score {self.score:.2f}"]
+        head = f"{self.scenario}: score {self.score:.2f}"
+        if self.baseline is not None:
+            head += f" (baseline {self.baseline:.2f}, {self.score - self.baseline:+.2f})"
+        lines = [head]
         for name, passed in self.objectives.items():
             lines.append(f"  [{'x' if passed else ' '}] {name}")
         lines.append(
@@ -45,6 +53,8 @@ class ScoreCard:
             f"  tokens: {self.tokens_in:,} in / {self.tokens_out:,} out"
             + (f", ${self.usd:.2f}" if self.usd else "")
         )
+        if self.baseline_note:
+            lines.append(f"  {self.baseline_note}")
         return "\n".join(lines)
 
 

@@ -51,6 +51,7 @@ you at run time.
 |---|---|
 | `days_per_turn` | in-game days between scheduled reviews |
 | `wake_on_no_focus`, `wake_on_free_research_slot` | opportunity wakes; turn off for a strictly scheduled run |
+| `planner_enabled` | `--no-llm` never wakes the model at all: reflexes only, zero model calls. `eval --no-llm --write-baseline` records those scores as the baseline every score card is reported against |
 | `reflex_enabled` | `--no-reflex` makes the model decide everything, including the boring parts |
 | `full_brief_every` | turns between full briefs; the rest are deltas |
 | `budget.max_usd`, `max_llm_calls`, `max_input_tokens`, `max_output_tokens` | hard ceilings; on exhaustion the run drops to reflex rather than stopping |

@@ -83,10 +83,12 @@ hoi4-harness play --profile profiles/unleashed.toml --live   # off the leash
 
 Also configurable: which actions exist at all (`--actions`, `--without`), whether
 the reflex layer runs (`--no-reflex` hands every decision to the model), whether
-irreversible actions are gated (`--allow-all`), the wake rules, the pacing, the
-budget ceilings, and the game start. Three worked profiles ship in
-[profiles/](profiles/). Full list: [docs/customization.md](docs/customization.md)
-and [docs/guidance.md](docs/guidance.md).
+the model is woken at all (`--no-llm` plays on reflexes alone — the baseline
+every score is reported against), whether irreversible actions are gated
+(`--allow-all`), the wake rules, the pacing, the budget ceilings, and the game
+start. Three worked profiles ship in [profiles/](profiles/). Full list:
+[docs/customization.md](docs/customization.md) and
+[docs/guidance.md](docs/guidance.md).
 
 The agent's in-game conduct is not policed. The only structural limits are
 schema validation (a malformed call is a bug, not a strategy), the confirmation
@@ -150,7 +152,8 @@ verification checklist: [docs/mod-bridge.md](docs/mod-bridge.md).
   provider-neutral tool specs.
 - **[observation/](src/hoi4_harness/observation/)** — full briefs, deltas, and the rule for choosing.
 - **[agent/](src/hoi4_harness/agent/)** — policy, memory, budget, prompts, loop, and the provider layer.
-- **[eval/](src/hoi4_harness/eval/)** — scenarios with checkable objectives, scored on outcome *and* cost.
+- **[eval/](src/hoi4_harness/eval/)** — scenarios with checkable objectives, scored on outcome *and* cost, and
+  reported against a recorded reflex-only baseline (`eval --no-llm --write-baseline`).
 
 ## Status
 

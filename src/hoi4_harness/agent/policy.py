@@ -38,15 +38,22 @@ class Policy:
         wake_on_no_focus: bool = True,
         wake_on_free_research_slot: bool = True,
         reflex_enabled: bool = True,
+        planner_enabled: bool = True,
     ):
         self.days_per_turn = days_per_turn
         self.wake_on_no_focus = wake_on_no_focus
         self.wake_on_free_research_slot = wake_on_free_research_slot
         self.reflex_enabled = reflex_enabled
+        self.planner_enabled = planner_enabled
 
     # --- when to spend a model call -----------------------------------------
 
     def should_wake(self, state: GameState, days_since_planner: int) -> WakeDecision:
+        if not self.planner_enabled:
+            # The reflex-only baseline: nothing is worth a model call, however
+            # loud the game gets, because there is no model to wake.
+            return WakeDecision(False, "planner disabled: reflex-only run")
+
         for event in state.events:
             if event.severity == "critical":
                 return WakeDecision(True, f"critical event: {event.text}", "critical")
