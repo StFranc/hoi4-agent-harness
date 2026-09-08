@@ -21,6 +21,49 @@ from .base import LLMClient, LLMResponse, Msg, ToolCall, Usage
 _REASONING_HINTS = ("gpt-5", "o1", "o3", "o4", "deepseek-r", "qwq")
 
 
+def wire_tools(tools: list[ToolSpec] | None) -> list[dict] | None:
+    """Tool specs -> OpenAI `tools`."""
+    if not tools:
+        return None
+    return [
+        {
+            "type": "function",
+            "function": {"name": t.name, "description": t.description, "parameters": t.parameters},
+        }
+        for t in tools
+    ]
+
+
+def wire_messages(system: str, messages: list[Msg]) -> list[dict]:
+    """Neutral messages -> OpenAI `messages`.
+
+    Tool results are their own role here, and must come *before* any new user
+    text so the assistant reads results then instructions.
+    """
+    wire: list[dict] = [{"role": "system", "content": system}]
+    for msg in messages:
+        if msg.role == "assistant":
+            entry: dict = {"role": "assistant", "content": msg.text or None}
+            if msg.tool_calls:
+                entry["tool_calls"] = [
+                    {
+                        "id": call.id,
+                        "type": "function",
+                        "function": {"name": call.name, "arguments": json.dumps(call.arguments)},
+                    }
+                    for call in msg.tool_calls
+                ]
+            wire.append(entry)
+        else:
+            for result in msg.tool_results:
+                wire.append(
+                    {"role": "tool", "tool_call_id": result.call_id, "content": result.content}
+                )
+            if msg.text:
+                wire.append({"role": "user", "content": msg.text})
+    return wire
+
+
 class OpenAIClient(LLMClient):
     name = "openai"
 
@@ -50,52 +93,10 @@ class OpenAIClient(LLMClient):
         self._send_effort = any(hint in model.lower() for hint in _REASONING_HINTS)
 
     def _tools(self, tools: list[ToolSpec] | None) -> list[dict] | None:
-        if not tools:
-            return None
-        return [
-            {
-                "type": "function",
-                "function": {
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.parameters,
-                },
-            }
-            for t in tools
-        ]
+        return wire_tools(tools)
 
     def _messages(self, system: str, messages: list[Msg]) -> list[dict]:
-        wire: list[dict] = [{"role": "system", "content": system}]
-        for msg in messages:
-            if msg.role == "assistant":
-                entry: dict = {"role": "assistant", "content": msg.text or None}
-                if msg.tool_calls:
-                    entry["tool_calls"] = [
-                        {
-                            "id": call.id,
-                            "type": "function",
-                            "function": {
-                                "name": call.name,
-                                "arguments": json.dumps(call.arguments),
-                            },
-                        }
-                        for call in msg.tool_calls
-                    ]
-                wire.append(entry)
-            else:
-                # Tool results are their own role here, and must come before any
-                # new user text so the assistant sees results then instructions.
-                for result in msg.tool_results:
-                    wire.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": result.call_id,
-                            "content": result.content,
-                        }
-                    )
-                if msg.text:
-                    wire.append({"role": "user", "content": msg.text})
-        return wire
+        return wire_messages(system, messages)
 
     def complete(self, system, messages, tools=None, max_tokens=None) -> LLMResponse:
         kwargs: dict = {

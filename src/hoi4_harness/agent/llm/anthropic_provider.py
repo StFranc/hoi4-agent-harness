@@ -20,6 +20,54 @@ from ...actions.registry import ToolSpec
 from .base import LLMClient, LLMResponse, Msg, ToolCall, Usage
 
 
+def wire_tools(tools: list[ToolSpec] | None, cache_prefix: bool = True) -> list[dict]:
+    """Tool specs -> Anthropic `tools`. The last entry carries the cache breakpoint."""
+    if not tools:
+        return []
+    payload = [
+        {"name": t.name, "description": t.description, "input_schema": t.parameters}
+        for t in tools
+    ]
+    if cache_prefix:
+        payload[-1] = {**payload[-1], "cache_control": {"type": "ephemeral"}}
+    return payload
+
+
+def wire_messages(messages: list[Msg]) -> list[dict]:
+    """Neutral messages -> Anthropic `messages`.
+
+    Tool results are `tool_result` blocks on a *user* message, and they come
+    before any new user text so the model reads results then instructions.
+    """
+    wire: list[dict] = []
+    for msg in messages:
+        if msg.role == "assistant":
+            content: list[dict] = []
+            if msg.text:
+                content.append({"type": "text", "text": msg.text})
+            for call in msg.tool_calls:
+                content.append(
+                    {"type": "tool_use", "id": call.id, "name": call.name, "input": call.arguments}
+                )
+            if content:
+                wire.append({"role": "assistant", "content": content})
+        else:
+            content = [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": result.call_id,
+                    "content": result.content,
+                    **({"is_error": True} if result.is_error else {}),
+                }
+                for result in msg.tool_results
+            ]
+            if msg.text:
+                content.append({"type": "text", "text": msg.text})
+            if content:
+                wire.append({"role": "user", "content": content})
+    return wire
+
+
 class AnthropicClient(LLMClient):
     name = "anthropic"
 
@@ -50,44 +98,10 @@ class AnthropicClient(LLMClient):
         self.cache_prefix = cache_prefix
 
     def _tools(self, tools: list[ToolSpec] | None) -> list[dict]:
-        if not tools:
-            return []
-        payload = [
-            {"name": t.name, "description": t.description, "input_schema": t.parameters}
-            for t in tools
-        ]
-        if self.cache_prefix:
-            payload[-1] = {**payload[-1], "cache_control": {"type": "ephemeral"}}
-        return payload
+        return wire_tools(tools, self.cache_prefix)
 
     def _messages(self, messages: list[Msg]) -> list[dict]:
-        wire: list[dict] = []
-        for msg in messages:
-            if msg.role == "assistant":
-                content: list[dict] = []
-                if msg.text:
-                    content.append({"type": "text", "text": msg.text})
-                for call in msg.tool_calls:
-                    content.append(
-                        {"type": "tool_use", "id": call.id, "name": call.name, "input": call.arguments}
-                    )
-                if content:
-                    wire.append({"role": "assistant", "content": content})
-            else:
-                content = [
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": result.call_id,
-                        "content": result.content,
-                        **({"is_error": True} if result.is_error else {}),
-                    }
-                    for result in msg.tool_results
-                ]
-                if msg.text:
-                    content.append({"type": "text", "text": msg.text})
-                if content:
-                    wire.append({"role": "user", "content": content})
-        return wire
+        return wire_messages(messages)
 
     def complete(self, system, messages, tools=None, max_tokens=None) -> LLMResponse:
         system_blocks = [{"type": "text", "text": system}]

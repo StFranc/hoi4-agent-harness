@@ -10,7 +10,49 @@ from __future__ import annotations
 
 import os
 
+from ...actions.registry import ToolSpec
 from .base import LLMClient, LLMResponse, Msg, ToolCall, Usage
+
+
+def wire_declarations(tools: list[ToolSpec] | None) -> list[dict]:
+    """Tool specs -> Gemini function declarations."""
+    return [
+        {"name": t.name, "description": t.description, "parameters": t.parameters}
+        for t in (tools or [])
+    ]
+
+
+def wire_contents(messages: list[Msg]) -> list[dict]:
+    """Neutral messages -> Gemini `contents`.
+
+    Gemini uses the roles "user" and "model", and carries tool results as
+    functionResponse parts on a user turn.
+    """
+    contents: list[dict] = []
+    for msg in messages:
+        if msg.role == "assistant":
+            parts: list[dict] = []
+            if msg.text:
+                parts.append({"text": msg.text})
+            for call in msg.tool_calls:
+                parts.append({"function_call": {"name": call.name, "args": call.arguments}})
+            if parts:
+                contents.append({"role": "model", "parts": parts})
+        else:
+            parts = [
+                {
+                    "function_response": {
+                        "name": result.name or result.call_id,
+                        "response": {"result": result.content},
+                    }
+                }
+                for result in msg.tool_results
+            ]
+            if msg.text:
+                parts.append({"text": msg.text})
+            if parts:
+                contents.append({"role": "user", "parts": parts})
+    return contents
 
 
 class GoogleClient(LLMClient):
@@ -38,42 +80,10 @@ class GoogleClient(LLMClient):
         self.temperature = temperature
 
     def _to_contents(self, messages: list[Msg]) -> list[dict]:
-        """Neutral messages -> Gemini `contents`.
-
-        Gemini uses roles "user" and "model", and carries tool results as
-        functionResponse parts on a user turn.
-        """
-        contents: list[dict] = []
-        for msg in messages:
-            if msg.role == "assistant":
-                parts: list[dict] = []
-                if msg.text:
-                    parts.append({"text": msg.text})
-                for call in msg.tool_calls:
-                    parts.append({"function_call": {"name": call.name, "args": call.arguments}})
-                if parts:
-                    contents.append({"role": "model", "parts": parts})
-            else:
-                parts = [
-                    {
-                        "function_response": {
-                            "name": result.name or result.call_id,
-                            "response": {"result": result.content},
-                        }
-                    }
-                    for result in msg.tool_results
-                ]
-                if msg.text:
-                    parts.append({"text": msg.text})
-                if parts:
-                    contents.append({"role": "user", "parts": parts})
-        return contents
+        return wire_contents(messages)
 
     def complete(self, system, messages, tools=None, max_tokens=None) -> LLMResponse:
-        declarations = [
-            {"name": t.name, "description": t.description, "parameters": t.parameters}
-            for t in (tools or [])
-        ]
+        declarations = wire_declarations(tools)
         config: dict = {
             "system_instruction": system,
             "max_output_tokens": max_tokens or self.max_tokens,
