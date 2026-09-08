@@ -43,12 +43,20 @@ building toward, and what would change your mind. Your notes come back to you.
 - If an action is rejected, the reason is in the result. Fix the argument or \
 choose a different action; do not repeat the same call."""
 
+ADVISOR = """Advisor mode. You are not playing this campaign; a person is. Every tool \
+call you make is shown to them as a recommendation, and none of them are \
+executed -- the harness cannot act, so the game will never change because you \
+called something. That is expected, not an error. Use the tools exactly as you \
+would if you were playing: concrete calls are the advice. `note` still writes \
+your journal. Call advance_time to end the turn, as usual."""
+
 
 def build_system(
     guidance: str | Path | None = "doctrine",
     extra: str = "",
     system_prompt_path: str | Path | None = None,
     operational_control: str = "llm",
+    advisor: bool = False,
 ) -> str:
     """Assemble the system prompt.
 
@@ -61,6 +69,10 @@ def build_system(
     from .hybrid import describe
 
     parts = [MECHANICS, describe(operational_control)]
+    if advisor:
+        # Sits with the mechanics, before any guidance: it corrects the fiction
+        # that the harness executes what the model calls.
+        parts.append(ADVISOR)
     text = load_guidance(guidance)
     if text:
         parts.append(text)

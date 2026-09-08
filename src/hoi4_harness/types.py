@@ -176,7 +176,8 @@ class ActionResult:
     action: str = ""
     call_id: str | None = None
     changed: dict[str, Any] = field(default_factory=dict)
-    error_kind: str | None = None   # invalid_action | invalid_args | rejected | unsupported | budget
+    # invalid_action | invalid_args | rejected | unsupported | budget | not_executed
+    error_kind: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

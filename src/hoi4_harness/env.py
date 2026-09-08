@@ -59,6 +59,18 @@ class HOI4Env:
 
     def act(self, call: ActionCall) -> ActionResult:
         """Validate, gate, then apply one action."""
+        if self.config.advisor:
+            # The hard edge of advisor mode. The loop routes calls to the
+            # advisor instead of here, but the env refusing is what makes the
+            # mode structural: no call site can act by accident.
+            return ActionResult(
+                ok=False,
+                action=call.name,
+                call_id=call.call_id,
+                message="Advisor mode: the harness cannot act. Nothing was executed.",
+                error_kind="not_executed",
+            )
+
         problem = registry.check(call, self.allowed_actions)
         if problem is not None:
             return problem

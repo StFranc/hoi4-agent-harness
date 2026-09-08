@@ -157,6 +157,9 @@ class HarnessConfig:
     # --- run ----------------------------------------------------------------
     turns: int = 10
     dry_run: bool = True
+    # Advisor mode: the model recommends and never acts. Tool calls are
+    # intercepted and shown to a human, so a read-only adapter suffices.
+    advisor: bool = False
     run_dir: Path = Path("runs")
     save_dir: Path | None = None
     log_path: Path | None = None          # game.log, for the logtail adapter
@@ -200,6 +203,7 @@ class HarnessConfig:
             poll_seconds=_env_float("HOI4_POLL_SECONDS", 2.0) or 2.0,
             turns=_env_int("HOI4_TURNS", 10),
             dry_run=_env_bool("HOI4_DRY_RUN", True),
+            advisor=_env_bool("HOI4_ADVISOR", False),
             run_dir=Path(os.environ.get("HOI4_RUN_DIR", "runs")),
             save_dir=Path(save_dir) if save_dir else None,
             log_path=Path(log_path) if log_path else None,

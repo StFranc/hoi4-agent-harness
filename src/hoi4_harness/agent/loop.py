@@ -23,10 +23,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..actions import registry
+from ..actions import catalog, registry
 from ..config import HarnessConfig
 from ..env import HOI4Env
 from ..types import ActionCall, ActionResult
+from .advisor import Advisor
 from .budget import BudgetGuard
 from .errors import classify, describe
 from .llm.base import LLMClient, Msg, ToolResult
@@ -108,9 +109,13 @@ class AgentLoop:
             extra=self.config.system_prompt_extra,
             system_prompt_path=self.config.system_prompt_path,
             operational_control=self.config.operational_control,
+            advisor=self.config.advisor,
         )
         self.budget = BudgetGuard(self.config.budget)
         self.transcript = Transcript(transcript_path, append=resume)
+        self.advisor = (
+            Advisor(transcript=self.transcript, memory=self.memory) if self.config.advisor else None
+        )
         self.report = RunReport(transcript_path=str(transcript_path) if transcript_path else None)
         self.run_dir = transcript_path.parent if transcript_path else None
         self._consecutive_errors = 0
@@ -186,6 +191,11 @@ class AgentLoop:
         self.report.reflex_turns += 1
         state = self.env.read_state()
         calls = self.policy.reflex_actions(state)
+        if self.advisor:
+            # Reflex housekeeping would be acting; in advisor mode the human
+            # owns every action. The clock still advances in run(), so the
+            # turn simply costs nothing.
+            calls = []
         if not calls:
             self.transcript.write("skip", date=state.date, reason=reason)
             return
@@ -207,7 +217,18 @@ class AgentLoop:
         # after whatever advance_time the model called, putting the memory a week
         # ahead of the turn it describes.
         turn_date = observation.state.date
-        tools = registry.tool_specs(self.env.allowed_actions)
+        if self.advisor:
+            # The menu is not gated on adapter capability: nothing executes, so
+            # a read-only adapter that supports nothing is still a fine advisor
+            # seat. Both hybrid vocabularies are fair as advice, so only the
+            # operator's whitelist narrows the full catalog.
+            allowed = set(catalog.names()) - set(self.config.disabled_actions)
+            if self.config.enabled_actions is not None:
+                allowed &= set(self.config.enabled_actions)
+            tools = registry.tool_specs(allowed)
+            self.advisor.begin(date=turn_date, turn=observation.turn, wake_reason=reason)
+        else:
+            tools = registry.tool_specs(self.env.allowed_actions)
         messages: list[Msg] = [
             Msg(
                 role="user",
@@ -237,7 +258,7 @@ class AgentLoop:
             try:
                 response = self.planner.complete(self.system, messages, tools)
             except Exception as exc:  # noqa: BLE001 - the provider is not ours
-                self._record_llm_failure(exc, observation.state.date)
+                self._record_llm_failure(exc, turn_date)
                 self._reflex_fallback(f"model call failed: {type(exc).__name__}")
                 return
             self._consecutive_errors = 0
@@ -252,6 +273,9 @@ class AgentLoop:
                 usage=response.usage.__dict__,
             )
 
+            if self.advisor and response.text:
+                self.advisor.prose(response.text)
+
             if not response.tool_calls:
                 break
 
@@ -262,6 +286,20 @@ class AgentLoop:
             end_turn = False
             for call in response.tool_calls:
                 action = ActionCall(name=call.name, arguments=call.arguments, call_id=call.id)
+                if self.advisor:
+                    # Intercepted: recorded, shown to the player, never executed.
+                    # note is the one call that is processed (into the journal),
+                    # which is what keeps the next wake's advice coherent.
+                    results.append(
+                        self.advisor.receive(
+                            action, date=turn_date,
+                            turn=observation.turn, wake_reason=reason,
+                        )
+                    )
+                    taken.append(action.name if action.name == "note" else f"{action.name} (recommended)")
+                    if action.name == "advance_time":
+                        end_turn = True
+                    continue
                 if action.name == "note":
                     self.memory.note(
                         turn_date, observation.turn, str(action.arguments.get("text", ""))
@@ -280,7 +318,8 @@ class AgentLoop:
                 if action.name == "advance_time":
                     end_turn = True
 
-            self.transcript.write("actions", results=[r.__dict__ for r in results])
+            if not self.advisor:
+                self.transcript.write("actions", results=[r.__dict__ for r in results])
             if end_turn:
                 break
             messages.append(Msg(role="user", tool_results=results))
