@@ -13,6 +13,15 @@ hundred times. So the harness splits control in two:
 The wake rule is the whole cost model of this project. Widening it is how a run
 gets expensive; the defaults below put a 1936-1939 campaign in the low hundreds
 of model calls.
+
+There is deliberately no third layer between these two. A cheap model triaging
+whether the planner is worth waking has to read the same brief to judge, so it
+pays nearly the same input cost -- and input is where the money goes. Measured on
+a live 12-turn run: 39,294 input tokens against 2,698 output. Prompt caching has
+already made a planner wake cheap; a gatekeeper in front of it would save a
+fraction of 6% of the bill, in exchange for a second provider surface and a
+second, invisible wake rule. If that trade ever looks worth making, measure it
+first -- the numbers above are how.
 """
 
 from __future__ import annotations

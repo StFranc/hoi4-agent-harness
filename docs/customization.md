@@ -72,7 +72,7 @@ you at run time.
 ## Profiles
 
 A profile is one JSON or TOML file holding any subset of the above. Nested
-`[planner]`, `[triage]` and `[budget]` tables merge rather than replace, and an
+`[planner]` and `[budget]` tables merge rather than replace, and an
 unknown key is an error rather than a silent no-op.
 
 Three worked examples ship in [`profiles/`](../profiles/):

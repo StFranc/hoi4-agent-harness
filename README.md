@@ -42,7 +42,6 @@ Everything else follows from those two:
 | Cached prefix | System prompt and tool schemas are byte-identical every call, so they bill at cache-read rates. Volatile text lives in the user message, never in `system`. |
 | Fresh context each turn | Memory is a bounded journal the agent writes itself, plus a rolling digest — not a growing transcript. Old briefs contradict new ones and cost money to re-read. |
 | 16 coarse actions | Not 200 fine ones. The tool block is on every request, and a long catalog confuses small models. |
-| Two model roles | A cheap model for triage, an expensive one for planning. Set independently. |
 | Hard budget ceilings | Calls, tokens and dollars. On exhaustion the loop drops to the reflex layer and keeps playing rather than stopping. |
 
 Order-of-magnitude estimate for 1936→1939 at weekly reviews: ~190 wakes,

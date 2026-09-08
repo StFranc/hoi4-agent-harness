@@ -15,14 +15,6 @@ DEFAULT_MODELS = {
     "scripted": "scripted",
 }
 
-DEFAULT_FAST_MODELS = {
-    "anthropic": "claude-haiku-4-5",
-    "openai": "gpt-5-mini",
-    "google": "gemini-2.5-flash",
-    "scripted": "scripted",
-}
-
-
 def _env_bool(name: str, default: bool) -> bool:
     raw = os.environ.get(name)
     if raw is None or raw == "":
@@ -50,7 +42,11 @@ def _env_float(name: str, default: float | None = None) -> float | None:
 
 @dataclass
 class LLMConfig:
-    """One model role. The harness uses two: a planner and a cheap triage model."""
+    """The planner: the model that decides what to do when the loop wakes it.
+
+    One role, deliberately. A second cheap model gating access to this one cannot
+    pay for itself here -- see the note on the wake rule in agent/policy.py.
+    """
 
     provider: str = "scripted"
     model: str = ""
@@ -67,19 +63,18 @@ class LLMConfig:
             self.model = DEFAULT_MODELS.get(self.provider, "")
 
     @classmethod
-    def from_env(cls, prefix: str = "HOI4_LLM", fast: bool = False) -> LLMConfig:
+    def from_env(cls, prefix: str = "HOI4_LLM") -> LLMConfig:
         provider = os.environ.get(f"{prefix}_PROVIDER", "scripted").strip().lower()
         model = os.environ.get(f"{prefix}_MODEL", "").strip()
         if not model:
-            table = DEFAULT_FAST_MODELS if fast else DEFAULT_MODELS
-            model = table.get(provider, "")
+            model = DEFAULT_MODELS.get(provider, "")
         return cls(
             provider=provider,
             model=model,
             base_url=os.environ.get(f"{prefix}_BASE_URL") or None,
             api_key_env=os.environ.get(f"{prefix}_API_KEY_ENV") or None,
-            max_tokens=_env_int(f"{prefix}_MAX_TOKENS", 4000 if fast else 16000),
-            effort=os.environ.get(f"{prefix}_EFFORT", "low" if fast else "high").strip(),
+            max_tokens=_env_int(f"{prefix}_MAX_TOKENS", 16000),
+            effort=os.environ.get(f"{prefix}_EFFORT", "high").strip(),
             temperature=_env_float(f"{prefix}_TEMPERATURE"),
         )
 
@@ -112,7 +107,6 @@ class BudgetConfig:
 class HarnessConfig:
     adapter: str = "mock"
     planner: LLMConfig = field(default_factory=LLMConfig)
-    triage: LLMConfig = field(default_factory=lambda: LLMConfig(max_tokens=1000, effort="low"))
     budget: BudgetConfig = field(default_factory=BudgetConfig)
 
     # --- what the model is told ---------------------------------------------
@@ -186,7 +180,6 @@ class HarnessConfig:
         return cls(
             adapter=os.environ.get("HOI4_ADAPTER", "mock").strip().lower(),
             planner=LLMConfig.from_env("HOI4_LLM"),
-            triage=LLMConfig.from_env("HOI4_TRIAGE", fast=True),
             budget=BudgetConfig.from_env(),
             guidance=os.environ.get("HOI4_GUIDANCE", "doctrine").strip(),
             system_prompt_extra=os.environ.get("HOI4_SYSTEM_PROMPT_EXTRA", ""),
@@ -219,7 +212,7 @@ class HarnessConfig:
         """Load a profile: one JSON or TOML file holding the whole configuration.
 
         Environment defaults are applied first, so a profile only has to state
-        what it changes. Nested ``planner``/``triage``/``budget`` tables are
+        what it changes. Nested ``planner``/``budget`` tables are
         merged rather than replaced.
         """
         path = Path(path)
@@ -237,7 +230,7 @@ class HarnessConfig:
     def merge(self, data: dict) -> HarnessConfig:
         """Apply a nested dict of overrides, returning self."""
         for key, value in data.items():
-            if key in {"planner", "triage"} and isinstance(value, dict):
+            if key == "planner" and isinstance(value, dict):
                 role = getattr(self, key)
                 for sub_key, sub_value in value.items():
                     setattr(role, sub_key, sub_value)
