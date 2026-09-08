@@ -36,6 +36,9 @@ class ScoreCard:
     # number means nothing without it. ``baseline_note`` says why a recorded
     # baseline was left out of the comparison.
     baseline: float | None = None
+    #: Where the run actually stopped, and whether that was the finish line.
+    end_date: str = ""
+    reached_end_date: bool | None = None
     baseline_note: str | None = None
 
     def render(self) -> str:
@@ -45,10 +48,16 @@ class ScoreCard:
         lines = [head]
         for name, passed in self.objectives.items():
             lines.append(f"  [{'x' if passed else ' '}] {name}")
-        lines.append(
-            f"  {self.turns} turns, {self.planner_calls} model calls "
-            f"({self.reflex_turns} handled by reflex)"
+        # Turns and calls are what the run cost to reach the finish line, not
+        # how it was configured. Reaching the same date in fewer calls is the
+        # better run, and the line should read that way.
+        cost = (
+            f"  reached {self.end_date} in {self.turns} turns and "
+            f"{self.planner_calls} model calls ({self.reflex_turns} on reflexes)"
         )
+        if self.reached_end_date is False:
+            cost += "  -- STOPPED SHORT: ran out of turns before the end date"
+        lines.append(cost)
         lines.append(
             f"  actions: {self.actions_ok} ok / {self.actions_failed} rejected "
             f"({self.invalid_rate:.0%} invalid)"
@@ -62,8 +71,14 @@ class ScoreCard:
         return "\n".join(lines)
 
 
-def score(scenario: Scenario, final_state: GameState, report: RunReport) -> ScoreCard:
-    results = {obj.name: bool(obj.check(final_state)) for obj in scenario.objectives}
+def score(
+    scenario: Scenario,
+    final_state: GameState,
+    report: RunReport,
+    history: list[GameState] | None = None,
+) -> ScoreCard:
+    states = history or [final_state]
+    results = {obj.name: obj.holds(final_state, states) for obj in scenario.objectives}
     total_weight = sum(obj.weight for obj in scenario.objectives) or 1.0
     earned = sum(obj.weight for obj in scenario.objectives if results[obj.name])
     attempted = report.actions_ok + report.actions_failed
@@ -79,6 +94,8 @@ def score(scenario: Scenario, final_state: GameState, report: RunReport) -> Scor
         actions_failed=report.actions_failed,
         invalid_rate=(report.actions_failed / attempted) if attempted else 0.0,
         stopped_reason=report.stopped_reason,
+        end_date=report.end_date,
+        reached_end_date=report.reached_end_date,
         tokens_in=spend.get("input_tokens", 0),
         tokens_out=spend.get("output_tokens", 0),
         usd=spend.get("usd", 0.0),

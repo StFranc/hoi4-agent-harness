@@ -45,5 +45,9 @@ def test_scenarios_run_and_score(key):
     config = HarnessConfig(adapter="mock", planner=LLMConfig(provider="scripted"))
     card = run_scenario(key, config)
     assert 0.0 <= card.score <= 1.0
-    assert card.turns == SCENARIOS[key].turns
+    # Turns are a cost now, not the bound: the run stops at the scenario's end
+    # date, and the cap only says how long it may take to get there.
+    assert 0 < card.turns <= SCENARIOS[key].max_turns
+    assert card.reached_end_date is True
+    assert card.end_date >= SCENARIOS[key].until
     assert set(card.objectives) == {o.name for o in SCENARIOS[key].objectives}

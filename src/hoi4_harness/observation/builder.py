@@ -46,7 +46,7 @@ class ObservationBuilder:
         # so the next build still qualifies for a full brief (env.reset uses it).
         if remember:
             self._turns_since_full = 0 if use_full else self._turns_since_full + 1
-            self._previous = _snapshot(state)
+            self._previous = snapshot(state)
         return Observation(
             turn=turn,
             state=state,
@@ -57,7 +57,7 @@ class ObservationBuilder:
         )
 
 
-def _snapshot(state: GameState) -> GameState:
+def snapshot(state: GameState) -> GameState:
     """Copy enough of the state to diff against next turn.
 
     A shallow copy would alias the adapter's own mutable lists, and the mock

@@ -49,6 +49,6 @@ def run_scenario(
         transcript_path=transcript,
     )
     loop.config.objective = scenario.briefing
-    report = loop.run(scenario.turns)
-    card = score(scenario, env.read_state(), report)
+    report = loop.run(scenario.max_turns, until=scenario.until)
+    card = score(scenario, env.read_state(), report, loop.history)
     return attach_baseline(card, scenario)

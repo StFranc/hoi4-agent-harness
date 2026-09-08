@@ -27,7 +27,8 @@ from typing import Any
 from ..actions import catalog, registry
 from ..config import HarnessConfig
 from ..env import HOI4Env
-from ..types import ActionCall, ActionResult
+from ..observation.builder import snapshot as deepcopy_state
+from ..types import ActionCall, ActionResult, GameState
 from .advisor import Advisor
 from .budget import BudgetGuard
 from .errors import classify, describe
@@ -54,6 +55,9 @@ class RunReport:
     #: caller can tell "played 200 turns" from "gave up after 3".
     stopped_reason: str | None = None
     resumed_from: str | None = None
+    #: True when the run stopped because it reached the date it was given, False
+    #: when it ran out of turns first. None when it was bounded by turns alone.
+    reached_end_date: bool | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return self.__dict__
@@ -122,6 +126,10 @@ class AgentLoop:
         self.report = RunReport(transcript_path=str(transcript_path) if transcript_path else None)
         self.run_dir = transcript_path.parent if transcript_path else None
         self._consecutive_errors = 0
+        #: One snapshot per turn, for objectives that are about the whole run
+        #: rather than where it stopped. Snapshots, not references: adapters
+        #: hand back a live GameState that keeps mutating.
+        self.history: list[GameState] = []
 
         if resume and transcript_path:
             self._resume_from(transcript_path)
@@ -152,8 +160,16 @@ class AgentLoop:
 
     # --- public --------------------------------------------------------------
 
-    def run(self, turns: int | None = None) -> RunReport:
+    def run(self, turns: int | None = None, until: str | None = None) -> RunReport:
+        """Play up to ``turns`` turns, or until the game reaches ``until``.
+
+        With a date, ``turns`` is a backstop: a model that never advances the
+        clock still has to stop somewhere, and the report says which bound was
+        hit so a run that never finished is not read as one that did.
+        """
         turns = turns if turns is not None else self.config.turns
+        if until is not None:
+            self.report.reached_end_date = False
         state = self.env.read_state()
         if not self.report.start_date:
             self.report.start_date = state.date
@@ -162,6 +178,7 @@ class AgentLoop:
         for _ in range(turns):
             state = self.env.read_state()
             turn_date = state.date
+            self.history.append(deepcopy_state(state))
             decision = self.policy.should_wake(state, days_since_planner)
             blocked = self.budget.why_blocked()
             downgraded = bool(decision.wake and blocked)
@@ -192,6 +209,9 @@ class AgentLoop:
             self._checkpoint()
 
             if self.report.stopped_reason:
+                break
+            if until is not None and state.date >= until:
+                self.report.reached_end_date = True
                 break
 
         self.report.spend = self.budget.summary()

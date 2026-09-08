@@ -11,33 +11,48 @@ asserted by playing one).
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from hoi4_harness.adapters.mock import MockAdapter
 from hoi4_harness.agent.loop import RunReport
-from hoi4_harness.config import HarnessConfig
+from hoi4_harness.config import HarnessConfig, LLMConfig
 from hoi4_harness.env import HOI4Env
 from hoi4_harness.eval import SCENARIOS, score
 from hoi4_harness.eval.baselines import load
+from hoi4_harness.eval.runner import run_scenario
+from hoi4_harness.eval.scenarios import most_turns
+from hoi4_harness.observation import snapshot
 from hoi4_harness.types import ActionCall, GameState
 
 
-def play(scenario, decide) -> GameState:
-    """Run a scenario on its own mock, asking one tiny policy once per turn."""
+def play(scenario, decide) -> tuple[GameState, list[GameState]]:
+    """Run a scenario on its own mock, asking one tiny policy once per turn.
+
+    Stops where the scenario stops -- at its end date, with max_turns only as a
+    backstop -- and returns the per-turn history the sustained objectives read.
+    """
     adapter = MockAdapter(seed=scenario.seed, country=scenario.country,
                           start=scenario.start, start_state=scenario.start_state)
     config = HarnessConfig(adapter="mock", planner_enabled=False,
                            operational_control=scenario.operational_control)
     env = HOI4Env(adapter, config)
     env.reset()
-    for _ in range(scenario.turns):
-        env.act_many(decide(env.read_state()))
-        env.advance()
-    return env.read_state()
+    history = []
+    for _ in range(scenario.max_turns):
+        state = env.read_state()
+        history.append(snapshot(state))
+        env.act_many(decide(state))
+        state = env.advance()
+        if state.date >= scenario.until:
+            break
+    return env.read_state(), history
 
 
 def run_card(scenario, decide):
-    return score(scenario, play(scenario, decide), RunReport())
+    final, history = play(scenario, decide)
+    return score(scenario, final, RunReport(), history)
 
 
 # --- the starts --------------------------------------------------------------
@@ -132,7 +147,8 @@ def test_objectives_only_read_fields_the_mock_populates(key):
     seen: set[str] = set()
     for objective in scenario.objectives:
         recorder = _AccessRecorder(state)
-        assert bool(objective.check(recorder)) in (True, False)
+        # A sustained objective reads the same fields, just across a history.
+        assert objective.holds(recorder, [recorder]) in (True, False)
         seen |= recorder.read
 
     assert seen <= populated, f"{key}: objectives read {seen - populated}"
@@ -222,3 +238,46 @@ def _diagnose(state):
 
 def test_recovery_rewards_diagnosis_over_the_obvious_defaults():
     assert run_card(SCENARIOS["recovery"], _diagnose).score == 1.0
+
+
+# --- bounding (issue #50) ----------------------------------------------------
+
+def test_a_scenario_stops_at_its_date_however_fast_the_turns_go():
+    """The bug this replaces: two policies with different pacing were scored six
+    years apart, against objectives that only grow with time."""
+    scenario = SCENARIOS["economy_ramp"]
+    config = HarnessConfig(adapter="mock", planner=LLMConfig(provider="scripted"))
+
+    slow = run_scenario(scenario, config)
+    fast = run_scenario(replace(scenario, seed=99), config)
+
+    for card in (slow, fast):
+        assert card.reached_end_date is True
+        assert card.end_date >= scenario.until
+
+
+def test_a_run_that_never_reaches_the_date_is_reported_not_scored_as_if_it_had():
+    scenario = replace(SCENARIOS["war_readiness"], max_turns=5)
+    card = run_scenario(scenario, HarnessConfig(adapter="mock",
+                                                planner=LLMConfig(provider="scripted")))
+    assert card.reached_end_date is False
+    assert "STOPPED SHORT" in card.render()
+
+
+def test_the_cost_line_reads_as_cost_not_configuration():
+    card = run_scenario("economy_ramp", HarnessConfig(adapter="mock",
+                                                      planner=LLMConfig(provider="scripted")))
+    line = next(x for x in card.render().splitlines() if "reached" in x)
+    assert "model calls" in line and "turns" in line
+
+
+def test_a_sustained_objective_is_not_satisfied_by_the_last_turn_alone():
+    """most_turns() is the whole point of #50's second half: a focus running at
+    the instant the run stopped says nothing about how it was played."""
+    idle = GameState()
+    busy = GameState(national_focus="industrial_effort")
+    sustained = most_turns(lambda s: s.national_focus is not None)
+
+    assert not sustained([idle] * 9 + [busy])       # right at the end only
+    assert sustained([busy] * 9 + [idle])           # held throughout
+    assert not sustained([])

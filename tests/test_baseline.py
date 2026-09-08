@@ -131,7 +131,7 @@ def test_every_scenario_has_a_recorded_baseline():
     for key, scenario in SCENARIOS.items():
         record = recorded[key]
         assert set(record["objectives"]) == {o.name for o in scenario.objectives}
-        assert record["turns"] == scenario.turns
+        assert record["turns"] <= scenario.max_turns
         assert record["harness_version"] == __version__
         assert 0.0 <= record["score"] <= 1.0
         assert all(isinstance(passed, bool) for passed in record["objectives"].values())
@@ -149,7 +149,7 @@ def test_write_baselines_merges_instead_of_dropping_other_scenarios(tmp_path):
         scenario=scenario.key,
         score=0.25,
         objectives={o.name: False for o in scenario.objectives},
-        turns=scenario.turns,
+        turns=scenario.max_turns,
     )
 
     write_baselines({"economy_ramp": card}, path)

@@ -6,14 +6,14 @@
       "front_held": false
     },
     "score": 0.0,
-    "turns": 40
+    "turns": 15
   },
   "economy_ramp": {
     "harness_version": "0.1.0",
     "objectives": {
       "civ_factories_20": false,
-      "focus_running": false,
-      "research_busy": false,
+      "focus_kept_running": false,
+      "research_kept_busy": false,
       "stability_held": true
     },
     "score": 0.25,
@@ -27,7 +27,7 @@
       "mil_factories_6": false
     },
     "score": 0.3333333333333333,
-    "turns": 80
+    "turns": 140
   },
   "recovery": {
     "harness_version": "0.1.0",
@@ -56,6 +56,6 @@
       "mil_factories_15": false
     },
     "score": 0.3333333333333333,
-    "turns": 180
+    "turns": 192
   }
 }
