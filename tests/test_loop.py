@@ -36,6 +36,34 @@ def test_irreversible_actions_are_blocked_in_dry_run():
     assert loop.report.actions_failed >= 1
 
 
+def test_the_local_validator_still_guards_a_client_claiming_strict_support():
+    """Strict tool schemas are the provider promising well-formed calls; the
+    loop does not take the promise. The same malformed call is rejected here as
+    it would be on a provider without strict."""
+    script = [
+        LLMResponse(
+            tool_calls=[
+                ToolCall(
+                    "1",
+                    "queue_construction",
+                    {"building": "civilian_factory", "state": "capital", "turbo": True},
+                )
+            ],
+            stop_reason="tool_use",
+            usage=Usage(10, 10),
+        ),
+        LLMResponse(
+            tool_calls=[ToolCall("2", "advance_time", {"days": 7, "reason": "turn over"})],
+            stop_reason="tool_use",
+            usage=Usage(10, 10),
+        ),
+    ]
+    loop, env = make_loop(script=script)
+    loop.planner.supports_strict_tools = True    # a strict-capable provider
+    loop.run(1)
+    assert loop.report.actions_failed == 1       # caught locally, not by the provider
+
+
 def test_the_budget_guard_downgrades_to_reflex_instead_of_stopping():
     loop, env = make_loop()
     loop.budget.config = BudgetConfig(max_llm_calls=1)

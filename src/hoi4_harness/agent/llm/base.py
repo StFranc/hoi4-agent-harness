@@ -77,6 +77,12 @@ class LLMClient(abc.ABC):
 
     name: str = "llm"
     model: str = ""
+    #: The provider enforces a tool's JSON Schema at decode time (structured
+    #: outputs), so a malformed call cannot be produced in the first place.
+    #: Defaulting False on purpose: a wrong True sends a field the endpoint may
+    #: reject and fail every call on. It never changes what the harness does
+    #: with the calls it gets back -- validate.py runs either way.
+    supports_strict_tools: bool = False
 
     @abc.abstractmethod
     def complete(

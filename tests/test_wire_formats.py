@@ -13,6 +13,8 @@ impossible to notice offline -- where tool results attach, and in what order.
 from __future__ import annotations
 
 import json
+import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -145,6 +147,109 @@ def test_gemini_declarations_match_the_catalog():
         {"name": SPEC.name, "description": SPEC.description, "parameters": SPEC.parameters}
     ]
     assert google.wire_declarations(None) == []
+
+
+# --- strict tool schemas (#19) ----------------------------------------------
+
+def _stub_sdk(monkeypatch, endpoint):
+    """A two-line stand-in for the optional openai dependency: enough to build
+    the client and watch what it sends, without the package installed."""
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(completions=endpoint)
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+
+
+def _completion():
+    """A response-shaped object, enough for OpenAIClient's parsing."""
+    message = SimpleNamespace(content="done.", tool_calls=None)
+    usage = SimpleNamespace(prompt_tokens=10, completion_tokens=5, prompt_tokens_details=None)
+    return SimpleNamespace(
+        choices=[SimpleNamespace(message=message, finish_reason="stop")], usage=usage
+    )
+
+
+class _RefusingEndpoint:
+    """Rejects any request still carrying the ``strict`` field, the way a server
+    that does not know it does, and answers normally once it is dropped."""
+
+    def __init__(self):
+        self.requests = []
+
+    def create(self, **kwargs):
+        self.requests.append(kwargs)
+        if any("strict" in t["function"] for t in kwargs.get("tools") or []):
+            raise RuntimeError("Unknown parameter: 'tools[0].function.strict'")
+        return _completion()
+
+
+def test_strict_is_sent_only_when_the_provider_declares_it():
+    wire = openai.wire_tools([SPEC], strict=True)
+    assert wire[0]["function"]["strict"] is True
+    assert "strict" not in openai.wire_tools([SPEC])[0]["function"]
+
+
+def test_a_schema_strict_mode_cannot_express_goes_out_unmarked():
+    """Strict mode has no optional fields: every property must be listed in
+    ``required``. The catalog has several (``count``, ``target``, ``detail``),
+    and marking one would fail the whole request, not just that tool -- so it
+    goes out plain and keeps the local validator as its guard."""
+    optional = ToolSpec(
+        name="queue_construction",
+        description="Add buildings to the queue.",
+        parameters={
+            "type": "object",
+            "properties": {"building": {"type": "string"}, "count": {"type": "integer"}},
+            "required": ["building"],
+            "additionalProperties": False,
+        },
+    )
+    assert openai.strict_compatible(optional.parameters) is False
+    assert openai.wire_tools([optional], strict=True)[0]["function"] == {
+        "name": optional.name,
+        "description": optional.description,
+        "parameters": optional.parameters,
+    }
+
+
+def test_the_catalog_gets_strict_on_exactly_the_fully_required_tools():
+    """Pinned so a catalog edit revisits this consciously: strict covers the
+    eleven actions with nothing optional; the other nine keep validate.py."""
+    wire = openai.wire_tools(tool_specs(), strict=True)
+    marked = {t["function"]["name"] for t in wire if t["function"].get("strict")}
+    assert marked == {
+        "set_national_focus", "start_research", "set_production", "set_air_mission",
+        "set_naval_mission", "enact_decision", "set_trade", "set_game_speed", "note",
+        "delegate_army_to_ai", "clear_ai_directives",
+    }
+
+
+def test_strict_support_is_declared_only_where_it_is_actually_supported(monkeypatch):
+    _stub_sdk(monkeypatch, _RefusingEndpoint())
+
+    def declares(model="gpt-5", base_url=None):
+        return openai.OpenAIClient(model=model, base_url=base_url).supports_strict_tools
+
+    assert declares() is True                            # OpenAI proper, structured-outputs model
+    assert declares(base_url="http://localhost:11434/v1") is False   # Ollama: not ours to guess
+    assert declares(model="gpt-3.5-turbo") is False      # predates structured outputs
+    assert declares(model="mistral-small-latest") is False           # unknown family
+
+
+def test_an_endpoint_that_refuses_the_strict_field_degrades_instead_of_dying(monkeypatch):
+    endpoint = _RefusingEndpoint()
+    _stub_sdk(monkeypatch, endpoint)
+    client = openai.OpenAIClient(model="gpt-5")
+
+    response = client.complete("s", [Msg("user", text="go")], [SPEC])
+    assert response.text == "done."                      # the call went through anyway
+    assert "strict" in endpoint.requests[0]["tools"][0]["function"]
+    assert "strict" not in endpoint.requests[1]["tools"][0]["function"]
+
+    client.complete("s", [Msg("user", text="go")], [SPEC])
+    assert len(endpoint.requests) == 3                   # the downgrade stuck
+    assert "strict" not in endpoint.requests[2]["tools"][0]["function"]
 
 
 # --- shared invariants ------------------------------------------------------
