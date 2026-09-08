@@ -4,6 +4,7 @@
     hoi4-harness actions                    the agent's vocabulary
     hoi4-harness observe                    one situation brief, then exit
     hoi4-harness play --turns 20            run the loop
+    hoi4-harness replay run.jsonl --turn 3  rebuild a turn's prompt, compare models
     hoi4-harness eval economy_ramp          run a scenario and score it
 
 Everything defaults to the mock adapter and the scripted model, so a fresh clone
@@ -26,6 +27,7 @@ from .agent.memory import Memory
 from .config import HarnessConfig
 from .env import HOI4Env
 from .guidance import available as guidance_packs
+from .replay import ReplayError, list_turns, replay_turn
 
 
 def _config_from_args(args: argparse.Namespace) -> HarnessConfig:
@@ -170,6 +172,24 @@ def cmd_play(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_replay(args: argparse.Namespace) -> int:
+    try:
+        if args.list_turns:
+            print(list_turns(Path(args.transcript)))
+            return 0
+        if args.turn is None:
+            print("replay: pass --turn N to choose a turn (see --list)", file=sys.stderr)
+            return 2
+        config = _config_from_args(args)
+        print(replay_turn(Path(args.transcript), args.turn, config).render())
+        return 0
+    except (ReplayError, ValueError) as exc:
+        # ValueError: a misconfigured provider reaches build_llm here, and its
+        # message already says what is wrong and what the options are.
+        print(f"replay: {exc}", file=sys.stderr)
+        return 1
+
+
 def cmd_eval(args: argparse.Namespace) -> int:
     from .eval import SCENARIOS, run_scenario
 
@@ -261,6 +281,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="continue an interrupted run in --run-dir, rebuilding state from its transcript",
     )
     play.set_defaults(func=cmd_play)
+
+    replay = sub.add_parser("replay", help="replay one turn from a transcript and compare models")
+    replay.add_argument("transcript", metavar="PATH", help="a transcript.jsonl written by play or eval")
+    replay.add_argument("--turn", type=int, help="which planner turn to replay (see --list)")
+    replay.add_argument("--list", dest="list_turns", action="store_true",
+                        help="show the turns in the transcript, then exit")
+    common(replay)
+    replay.set_defaults(func=cmd_replay)
 
     evaluate = sub.add_parser("eval", help="run a scenario and score it")
     common(evaluate)

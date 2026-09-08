@@ -191,6 +191,12 @@ class AgentLoop:
 
     def _planner_turn(self, reason: str) -> None:
         observation = self.env.observe()
+        # Adapters hand back a live reference to their own GameState, which keeps
+        # mutating as this turn's actions run. Capture the date now: journalling
+        # with observation.state.date at the end of the turn dated every entry
+        # after whatever advance_time the model called, putting the memory a week
+        # ahead of the turn it describes.
+        turn_date = observation.state.date
         tools = registry.tool_specs(self.env.allowed_actions)
         messages: list[Msg] = [
             Msg(
@@ -207,7 +213,7 @@ class AgentLoop:
         ]
         self.transcript.write(
             "observe",
-            date=observation.state.date,
+            date=turn_date,
             turn=observation.turn,
             is_delta=observation.is_delta,
             brief=observation.brief,
@@ -248,7 +254,7 @@ class AgentLoop:
                 action = ActionCall(name=call.name, arguments=call.arguments, call_id=call.id)
                 if action.name == "note":
                     self.memory.note(
-                        observation.state.date, observation.turn, str(action.arguments.get("text", ""))
+                        turn_date, observation.turn, str(action.arguments.get("text", ""))
                     )
                 result = self.env.act(action)
                 self._tally([result])
@@ -269,7 +275,7 @@ class AgentLoop:
                 break
             messages.append(Msg(role="user", tool_results=results))
 
-        self.memory.record_turn(observation.state.date, taken)
+        self.memory.record_turn(turn_date, taken)
 
     # --- failure handling ----------------------------------------------------
 

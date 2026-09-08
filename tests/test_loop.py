@@ -65,3 +65,36 @@ def test_the_planner_is_not_woken_when_nothing_is_happening():
     quiet.research = []
     assert not Policy(days_per_turn=7).should_wake(quiet, days_since_planner=1).wake
     assert Policy(days_per_turn=7).should_wake(quiet, days_since_planner=7).wake
+
+
+def test_memory_is_dated_when_the_turn_happened_not_after_it():
+    """Adapters hand back a live GameState that keeps mutating as the turn's
+    actions run, so reading the date at the end of the turn dated every journal
+    entry after whatever advance_time the model called."""
+    loop, env = make_loop()
+    start = env.read_state().date
+    loop.run(3)
+
+    observed_dates = [entry.split(":")[0] for entry in loop.memory.digest]
+    assert observed_dates[0] == start
+    # Turns are days_per_turn apart in the mock; nothing should be dated between.
+    assert len(set(observed_dates)) == len(observed_dates)
+    for entry, expected in zip(loop.memory.digest, observed_dates, strict=True):
+        assert entry.startswith(expected)
+
+
+def test_a_note_is_journalled_under_the_date_of_the_turn_that_wrote_it():
+    script = [
+        LLMResponse(
+            tool_calls=[
+                ToolCall("1", "note", {"text": "Plan set."}),
+                ToolCall("2", "advance_time", {"days": 30}),
+            ],
+            stop_reason="tool_use",
+            usage=Usage(10, 10),
+        )
+    ]
+    loop, env = make_loop(script=script)
+    start = env.read_state().date
+    loop.run(1)
+    assert loop.memory.journal[0].date == start

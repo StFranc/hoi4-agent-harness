@@ -55,7 +55,10 @@ its assumptions are in [docs/cost-and-timing.md](docs/cost-and-timing.md).
 
 Everything the harness decides is a setting: precedence is defaults → environment
 → profile file → CLI flags. `hoi4-harness prompt` prints the exact system prompt a
-run would use; `hoi4-harness doctor` prints the resolved configuration.
+run would use; `hoi4-harness doctor` prints the resolved configuration. After a
+run, `hoi4-harness replay run.jsonl --turn 3` rebuilds the prompt that turn was
+given and shows what another model calls in the same situation — nothing is
+executed.
 
 The layer worth knowing about is **guidance** — how much the harness tells the
 model about playing HOI4. The mechanics half of the prompt is fixed (without it
