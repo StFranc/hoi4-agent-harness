@@ -66,6 +66,7 @@ you at run time.
 | `country`, `start_date`, `seed` | mock adapter start |
 | `log_path` / `HOI4_LOG_PATH` | `game.log`, for the logtail adapter |
 | `save_dir`, `window_title` | real-game adapters |
+| `enforce_window_focus`, `--no-window-guard` | refuse to send input unless the game is focused (default on) |
 
 ## Profiles
 

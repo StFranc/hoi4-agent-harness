@@ -52,6 +52,8 @@ def _config_from_args(args: argparse.Namespace) -> HarnessConfig:
         config.budget.max_usd = args.max_usd
     if getattr(args, "live", False):
         config.dry_run = False
+    if getattr(args, "no_window_guard", False):
+        config.enforce_window_focus = False
     if getattr(args, "run_dir", None):
         config.run_dir = Path(args.run_dir)
     if getattr(args, "guidance", None):
@@ -102,6 +104,17 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             print(f"  [x] {module}")
         except ImportError:
             print(f"  [ ] {module}  (pip install 'hoi4-agent-harness[{extra}]')")
+
+    try:
+        from .adapters.window import check_focus
+
+        focus = check_focus(config.window_title)
+        if focus.supported:
+            print(f"game focused     {focus.focused}" + (f" ({focus.title})" if focus.title else ""))
+        else:
+            print(f"game focused     unknown -- {focus.reason}")
+    except Exception as exc:  # noqa: BLE001 - doctor reports, never raises
+        print(f"game focused     check failed: {exc}")
 
     try:
         adapter = build_adapter(config)
@@ -201,6 +214,8 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--live", action="store_true",
                        help="allow irreversible actions (default: dry run)")
         p.add_argument("--max-usd", type=float)
+        p.add_argument("--no-window-guard", dest="no_window_guard", action="store_true",
+                       help="send input even when the game is not the focused window")
         p.add_argument("--profile", help="JSON/TOML file holding a whole configuration")
         p.add_argument("--guidance", metavar="NAME|PATH",
                        help="how much to coach the model: " + ", ".join(guidance_packs())

@@ -78,6 +78,17 @@ survive resolution and UI-scale changes; coordinates live in a calibration dict,
 not in code. `dry_run=True` logs intended input without sending it, which is how
 the tests and the default CLI run.
 
+Input is gated on window focus. Before anything is sent, the adapter checks that
+the focused window's title contains `window_title` -- a case-insensitive
+substring, because the real title carries a suffix (`Hearts of Iron IV (OpenGL)`)
+and an exact match would never fire. If the game is not focused, the action comes
+back as a failed `ActionResult` with the name of the window that *is* focused,
+which the agent can read and act on like any other rejection.
+
+A platform with no implemented check reports **unsupported** and refuses, rather
+than passing. A guard that always returns true is worse than no guard, because it
+gets trusted. `--no-window-guard` is the deliberate opt-out.
+
 The open work is one UI script per action, each ending in a verify step: act,
 re-read, confirm the state actually changed. A blind click is unverifiable, and
 an unverified action reported as success is the worst failure mode in this whole

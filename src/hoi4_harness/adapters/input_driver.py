@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 
 from ..types import ActionCall, ActionResult, GameState
 from .base import AdapterInfo, GameAdapter
+from .window import FocusCheck, check_focus
 
 HOTKEYS = {
     "pause": "space",
@@ -32,12 +33,21 @@ HOTKEYS = {
 }
 
 
+class NotFocused(RuntimeError):
+    """The game was not the focused window, so nothing was sent."""
+
+
 @dataclass
 class InputConfig:
+    #: Matched as a case-insensitive substring: the real title carries a suffix
+    #: ("Hearts of Iron IV (OpenGL)"), so an exact match never fires.
     window_title: str = "Hearts of Iron IV"
     move_duration: float = 0.08
     settle_seconds: float = 0.35
     coordinates: dict[str, tuple[int, int]] = field(default_factory=dict)
+    #: Refuse to send input unless the game is focused. Turning this off is an
+    #: explicit choice to let keystrokes land wherever they land.
+    enforce_focus: bool = True
 
 
 class InputDriverAdapter(GameAdapter):
@@ -48,10 +58,41 @@ class InputDriverAdapter(GameAdapter):
 
     supported_actions = frozenset({"set_game_speed", "advance_time", "note"})
 
-    def __init__(self, config: InputConfig | None = None, dry_run: bool = True):
+    def __init__(
+        self,
+        config: InputConfig | None = None,
+        dry_run: bool = True,
+        focus_check=check_focus,
+    ):
         self.config = config or InputConfig()
         self.dry_run = dry_run
         self.log: list[str] = []
+        self._focus_check = focus_check
+
+    # --- the guard -----------------------------------------------------------
+
+    def focus(self) -> FocusCheck:
+        """Where would input land right now?"""
+        return self._focus_check(self.config.window_title)
+
+    def _require_focus(self) -> None:
+        """Raise unless it is safe to send input.
+
+        Skipped in dry-run, where nothing is sent. An unsupported platform
+        refuses rather than passing: a guard that cannot check must not pretend
+        it did.
+        """
+        if self.dry_run or not self.config.enforce_focus:
+            return
+        result = self.focus()
+        if result.focused:
+            return
+        if not result.supported:
+            raise NotFocused(
+                f"cannot verify the focused window ({result.reason}); refusing to send input. "
+                "Set enforce_focus=False to send anyway."
+            )
+        raise NotFocused(f"{self.config.window_title!r} is not focused: {result.reason}")
 
     def info(self) -> AdapterInfo:
         return AdapterInfo(
@@ -71,11 +112,13 @@ class InputDriverAdapter(GameAdapter):
         return pyautogui
 
     def press(self, key: str) -> None:
+        self._require_focus()
         self.log.append(f"press {key}")
         if not self.dry_run:
             self._gui().press(key)
 
     def click(self, target: str) -> None:
+        self._require_focus()
         point = self.config.coordinates.get(target)
         if point is None:
             raise KeyError(f"No calibrated coordinate for {target!r}. Run: hoi4-harness calibrate")
@@ -89,6 +132,20 @@ class InputDriverAdapter(GameAdapter):
         raise NotImplementedError("Write-only adapter; compose it with a reader.")
 
     def apply(self, call: ActionCall) -> ActionResult:
+        try:
+            return self._apply(call)
+        except NotFocused as exc:
+            # The same contract as every other adapter failure: report it, do not
+            # pretend the action happened. The agent can read this and wait.
+            return ActionResult(
+                ok=False,
+                action=call.name,
+                call_id=call.call_id,
+                message=str(exc),
+                error_kind="rejected",
+            )
+
+    def _apply(self, call: ActionCall) -> ActionResult:
         if call.name == "note":
             return ActionResult(ok=True, action=call.name, call_id=call.call_id, message="Noted.")
         if call.name == "set_game_speed":
