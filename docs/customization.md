@@ -40,6 +40,7 @@ you at run time.
 | Allowed actions | `--actions a,b,c` | whitelist; narrows the tool block too |
 | Forbidden actions | `--without a,b` | blacklist |
 | Confirmation gate | `--allow-all` | let irreversible actions through |
+| Ask a person | `--confirm` | terminal prompt on each irreversible action: yes / no / always |
 | Live mode | `--live` | dry run is the default |
 | Actions per turn | `max_actions_per_turn` | |
 | Tool rounds per turn | `max_tool_rounds_per_turn` | how many times it can react to a rejection |

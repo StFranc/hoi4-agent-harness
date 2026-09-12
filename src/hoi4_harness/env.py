@@ -11,6 +11,7 @@ from __future__ import annotations
 from .actions import registry
 from .adapters.base import GameAdapter
 from .config import HarnessConfig
+from .confirm import Confirmation
 from .observation import ObservationBuilder
 from .types import ActionCall, ActionResult, GameState, Observation
 
@@ -21,7 +22,9 @@ class HOI4Env:
         self.config = config or HarnessConfig()
         self.builder = ObservationBuilder(full_brief_every=self.config.full_brief_every)
         self.turn = 0
-        self.confirm_hook = None  # set to a callable(ActionCall) -> bool for human approval
+        # set to a callable(Confirmation) -> bool for human approval, e.g. the
+        # terminal prompt in confirm.py
+        self.confirm_hook = None
 
     # --- observation ---------------------------------------------------------
 
@@ -57,8 +60,14 @@ class HOI4Env:
 
     # --- acting --------------------------------------------------------------
 
-    def act(self, call: ActionCall) -> ActionResult:
-        """Validate, gate, then apply one action."""
+    def act(self, call: ActionCall, date: str = "") -> ActionResult:
+        """Validate, gate, then apply one action.
+
+        ``date`` is the game date the caller is acting against. It is only used
+        to give a human at the confirmation gate the context to judge the call,
+        and it is passed in rather than read here: the loop already has it, and
+        on a screen adapter a state read costs a vision-model call.
+        """
         if self.config.advisor:
             # The hard edge of advisor mode. The loop routes calls to the
             # advisor instead of here, but the env refusing is what makes the
@@ -87,7 +96,9 @@ class HOI4Env:
                     ),
                     error_kind="rejected",
                 )
-            if self.confirm_hook and not self.confirm_hook(call):
+            if self.confirm_hook and not self.confirm_hook(
+                Confirmation(call=call, date=date, turn=self.turn)
+            ):
                 return ActionResult(
                     ok=False,
                     action=call.name,
@@ -107,10 +118,10 @@ class HOI4Env:
                 error_kind="rejected",
             )
 
-    def act_many(self, calls: list[ActionCall]) -> list[ActionResult]:
+    def act_many(self, calls: list[ActionCall], date: str = "") -> list[ActionResult]:
         results: list[ActionResult] = []
         for call in calls[: self.config.max_actions_per_turn]:
-            results.append(self.act(call))
+            results.append(self.act(call, date))
         if len(calls) > self.config.max_actions_per_turn:
             results.append(
                 ActionResult(
