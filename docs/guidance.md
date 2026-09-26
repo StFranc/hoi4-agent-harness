@@ -58,5 +58,6 @@ being trustworthy rather than the agent being well-behaved:
 - **Validation** — a call that does not match the schema is rejected with a
   reason, because a malformed call is a bug, not a strategy.
 - **The confirmation gate** — irreversible actions are blocked in dry-run mode,
-  and route through `confirm_hook` when live. Turn it off with `--allow-all`.
+  and route through `confirm_hook` when live. Answer them yourself with
+  `--confirm`, or turn the gate off with `--allow-all`.
 - **Budget ceilings** — money, not morals.

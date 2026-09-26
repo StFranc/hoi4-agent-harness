@@ -60,9 +60,17 @@ The second one gets fixed on the next tool round; the first burns a turn.
 
 Actions with `requires_confirmation=True` are irreversible or war-starting. In
 dry-run mode (the default) they are refused with an explanation. With `--live`
-they route through `env.confirm_hook`, which a UI can implement; with no hook set,
-they proceed. Keep new irreversible actions on that list — the model cannot undo
-a declaration of war, and neither can you.
+they route through `env.confirm_hook`, which is a callable taking a
+`confirm.Confirmation` (the call, the game date, the turn, and the model's own
+rationale) and returning whether to proceed; with no hook set, they proceed.
+
+`play --confirm` installs the one this repo ships: a terminal prompt showing the
+action, its arguments and the rationale, answered `yes` / `no` / `always`. It is
+off by default so unattended runs are never blocked, and with no input at all the
+answer is no. Every decision, denial included, is written to the transcript as a
+`confirmation` record — a run where a person blocked three invasions is not the
+same run as one that never tried. Keep new irreversible actions on that list —
+the model cannot undo a declaration of war, and neither can you.
 
 ## Adding an action
 

@@ -29,6 +29,7 @@ from .agent.loop import AgentLoop
 from .agent.memory import Memory
 from .calibration import DEFAULT_FILENAME, DEFAULT_TARGETS
 from .config import HarnessConfig
+from .confirm import TerminalConfirmer
 from .env import HOI4Env
 from .guidance import available as guidance_packs
 from .replay import ReplayError, list_turns, replay_turn
@@ -180,6 +181,14 @@ def cmd_play(args: argparse.Namespace) -> int:
     )
     if resume and loop.report.resumed_from:
         print(f"resuming {run_dir}: {loop.report.turns} turns already played", file=sys.stderr)
+    if getattr(args, "confirm", False):
+        # The hook is the gate's only UI; without this flag a live gated action
+        # runs unanswered, which is what keeps unattended runs working.
+        env.confirm_hook = TerminalConfirmer(loop.transcript)
+        if not config.require_confirmation:
+            echo("confirm: the gate is off (--allow-all), so nothing will be asked")
+        elif config.dry_run:
+            echo("confirm: dry run refuses irreversible actions before the prompt; use --live")
     report = loop.run(config.turns)
     loop.memory.save(run_dir / "memory.json")
     print(json.dumps(report.to_dict(), indent=2, default=str))
@@ -345,6 +354,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     play.add_argument("--quiet", action="store_true",
                       help="no per-turn progress line on stderr")
+    play.add_argument("--confirm", action="store_true",
+                      help="ask a person before every irreversible action (needs --live)")
     play.set_defaults(func=cmd_play)
 
     replay = sub.add_parser("replay", help="replay one turn from a transcript and compare models")
