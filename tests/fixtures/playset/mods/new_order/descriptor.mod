@@ -1,0 +1,5 @@
+version="0.9"
+name="New Order Fixture"
+replace_path="common/national_focus"
+replace_path="history/states"
+supported_version="1.14.*"

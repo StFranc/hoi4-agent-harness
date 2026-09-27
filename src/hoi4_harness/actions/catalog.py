@@ -313,12 +313,17 @@ ACTIONS += [
         category="strategy",
         description=(
             "Set how aggressively delegated forces behave. Defensive holds and "
-            "reinforces; offensive presses attacks; balanced is the game default."
+            "reinforces; offensive presses attacks; balanced is the game default. "
+            "With a theater, only that front changes and it overrides the global "
+            "posture there: hold in one theater while pressing in another."
         ),
         parameters=_schema(
             {
                 "posture": {"type": "string", "enum": ["defensive", "balanced", "offensive"]},
-                "theater": {"type": "string", "description": "Optional: limit to one theater."},
+                "theater": {
+                    "type": "string",
+                    "description": "Optional: a front name from the brief. Omit for every front.",
+                },
             },
             ["posture"],
         ),

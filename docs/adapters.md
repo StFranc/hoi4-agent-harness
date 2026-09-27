@@ -56,14 +56,33 @@ A path you supply explicitly is used or it fails — discovery never runs as a
 fallback, because searching on after you named a directory would mean reading a
 different campaign than the one you pointed at.
 
-## savegame — parser done, mapping TODO
+## savegame — parser and targeted reading done, field mapping needs a real save
 
 Reads the most recent `*.hoi4` autosave. `parse_clausewitz()` handles Paradox's
 `key=value` / `key={...}` text format including repeated keys.
 
-What is left is the mapping from parsed blocks to `GameState`, which has to be
-verified against a real save rather than guessed — block names have moved between
-patches. The three TODOs are marked in `_to_state`.
+A save is 68–96 MB on the machine this was checked on, so the adapter no longer
+tokenizes all of it. A text save writes its top level at column 0, so
+`top_level_spans()` finds each top-level entry without parsing, `extract()`
+parses only the entries asked for, and `country_block()` cuts out the player's
+own block. On a synthetic 53 MB save that is 0.6 s against 11.8 s for a full
+parse. When the layout does not show a key (a save on one line), it falls back
+to the full parse rather than reporting the key absent.
+
+What is left is the mapping from the player's block to `GameState`, which has to
+be verified against a real save rather than guessed — block names have moved
+between patches. So the adapter reads the date and the player and puts the
+player's parsed block in `state.raw["country"]`, and declares everything else
+unknown until each field is checked. To do that work from the file rather than
+from memory:
+
+```bash
+hoi4-harness save-inspect                   # newest save in HOI4_SAVE_DIR
+hoi4-harness save-inspect path/to/save.hoi4
+```
+
+prints the top-level entries by size and the player country's keys with a sample
+of each value — the input for writing `_to_state`, one verified field at a time.
 
 Constraints: non-ironman text saves only (ironman is binary and compressed); a
 save is a snapshot, so pair it with a short autosave interval; read-only, so
@@ -82,7 +101,7 @@ works on ironman and the only one that sees alerts and the map — and the most
 expensive per observation, so it is for what numbers cannot express, not for
 routine ticks.
 
-## input_driver — mechanics done, per-action scripts TODO
+## input_driver — mechanics and verification done, click paths recorded per install
 
 The write side. Hotkeys (`HOTKEYS`) are preferred over coordinates because they
 survive resolution and UI-scale changes; coordinates live in a calibration dict,
@@ -102,10 +121,64 @@ A platform with no implemented check reports **unsupported** and refuses, rather
 than passing. A guard that always returns true is worse than no guard, because it
 gets trusted. `--no-window-guard` is the deliberate opt-out.
 
-The open work is one UI script per action, each ending in a verify step: act,
-re-read, confirm the state actually changed. A blind click is unverifiable, and
-an unverified action reported as success is the worst failure mode in this whole
-design.
+### UI scripts: act, then prove it
+
+A blind click is unverifiable, and an unverified action reported as success is
+the worst failure mode in this whole design. So a scripted action has two halves,
+kept apart on purpose ([`ui_scripts.py`](../src/hoi4_harness/adapters/ui_scripts.py)):
+
+- **The click path** is data. It depends on the game version, the UI scale and
+  your layout, so — like coordinates — it lives in a file you record against
+  your own game, `<run-dir>/ui_scripts.json` (or `HOI4_UI_SCRIPTS`). Steps are
+  `press`, `click` (a calibrated target), `type` and `wait`, and may carry
+  `{placeholders}` filled from the action's arguments:
+
+  ```json
+  {"schema": 1, "scripts": {"set_national_focus": [
+    {"press": "f"}, {"click": "focus.search"}, {"type": "{focus_id}"},
+    {"click": "focus.first_result"}, {"press": "escape"}]}}
+  ```
+
+- **The verification** is code, because it does not depend on the UI: a started
+  focus is running, a researched technology is in a slot, a queued building
+  lengthens the queue by `count`, a production line has the factories asked for,
+  and a hired advisor costs political power (weak, since no adapter reports
+  advisors, and said so). The hybrid actions verify the same way: an army is (or
+  is no longer) under AI control, the posture — global or on a theater — is the
+  one asked for, a directive stands for exactly the country named, and
+  standing down leaves no directive and no posture.
+
+After the steps, the driver re-reads the game through the reader it is composed
+with and polls until the verification passes or a timeout expires. The result is
+one of:
+
+| Outcome | When |
+|---|---|
+| ok, "done and verified" | the consequence showed up |
+| `rejected`, "input sent but the game did not change: …" | it did not — the UI was not where the script expected |
+| `unverified` | the reader cannot see the field that would prove it (the log-tail bridge does not emit the focus yet); treat it as not done |
+| `not_executed` | dry run: the path is logged, nothing is sent |
+
+A script is refused before any input is sent when a click target has no
+calibrated coordinate, and a scripts file naming an action with no verification
+(anything outside the five peacetime actions and the four hybrid ones) is
+refused at load time.
+
+Through the log-tail reader, posture is observable — the mod emits an event when
+it changes, and the reader tracks it from the first one. So are standing
+directives: each generated per-target branch logs its own literal line
+(`kind=14|detail=protect POL`, no variable to expand), and the reader rebuilds
+the list from those and resets it on stand-down. Directives raised before the
+harness started reading are missing until the next stand-down; a raise it saw
+never is. Delegated armies are not reported by the mod, so delegation comes
+back `unverified` there — the honest answer until the mod emits it. An action
+with no recorded script is refused, as before.
+
+To set one up: copy [`profiles/ui_scripts.example.json`](../profiles/ui_scripts.example.json)
+— a template whose paths are guesses at the UI, to be checked step by step — to
+your run directory, fix it against what you see, then run `hoi4-harness
+calibrate`, which now walks the targets your scripts click. `calibration.json`
+in the run directory (or `HOI4_CALIBRATION`) is loaded automatically.
 
 ## composite
 

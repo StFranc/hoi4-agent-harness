@@ -1,0 +1,10 @@
+shared_focus = {
+	id = SHARED_root
+}
+shared_focus = {
+	id = SHARED_child
+	prerequisite = { focus = SHARED_root }
+}
+shared_focus = {
+	id = SHARED_unrelated
+}

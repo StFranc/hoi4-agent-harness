@@ -20,6 +20,25 @@ from ...actions.registry import ToolSpec
 from .base import LLMClient, LLMResponse, Msg, ToolCall, Usage
 
 
+def usage_from_wire(raw) -> Usage:
+    """Anthropic's usage block -> Usage.
+
+    Anthropic's ``input_tokens`` counts only the uncached remainder; cache reads
+    and cache writes are reported beside it. All three are billed input, so all
+    three are summed -- before this, cache writes were not counted at all and a
+    run's input total was short by its entire cached prefix.
+    """
+    uncached = getattr(raw, "input_tokens", 0) or 0
+    read = getattr(raw, "cache_read_input_tokens", 0) or 0
+    written = getattr(raw, "cache_creation_input_tokens", 0) or 0
+    return Usage(
+        input_tokens=uncached + read + written,
+        output_tokens=getattr(raw, "output_tokens", 0) or 0,
+        cached_input_tokens=read,
+        cache_write_input_tokens=written,
+    )
+
+
 def wire_tools(tools: list[ToolSpec] | None, cache_prefix: bool = True) -> list[dict]:
     """Tool specs -> Anthropic `tools`. The last entry carries the cache breakpoint."""
     if not tools:
@@ -125,11 +144,7 @@ class AnthropicClient(LLMClient):
             for b in message.content
             if b.type == "tool_use"
         ]
-        usage = Usage(
-            input_tokens=getattr(message.usage, "input_tokens", 0),
-            output_tokens=getattr(message.usage, "output_tokens", 0),
-            cached_input_tokens=getattr(message.usage, "cache_read_input_tokens", 0) or 0,
-        )
+        usage = usage_from_wire(message.usage)
         return LLMResponse(
             text=text,
             tool_calls=calls,

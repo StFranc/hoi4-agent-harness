@@ -44,11 +44,13 @@ Everything else follows from those two:
 | 16 coarse actions | Not 200 fine ones. The tool block is on every request, and a long catalog confuses small models. |
 | Hard budget ceilings | Calls, tokens and dollars. On exhaustion the loop drops to the reflex layer and keeps playing rather than stopping. |
 
-Order-of-magnitude estimate for 1936→1939 at weekly reviews: ~190 wakes,
-~2.2k input tokens each (≈90% cached after the first), ~200 output. That is
-roughly 400k input / 40k output tokens for the campaign — a few dollars on a
-frontier model, cents on a mid-tier one, free on a local one. The arithmetic and
-its assumptions are in [docs/cost-and-timing.md](docs/cost-and-timing.md).
+Measured against the mock with a scripted planner (`hoi4-harness measure`):
+1936→1939 is ~105 wakes of ~1.75k input tokens each, ~1.5k of them the cacheable
+prefix — roughly 185k input tokens for the campaign. A scripted 1939–1941 war
+grows the full brief by a third and leaves the wake rate flat. Those are the
+harness's numbers against a stand-in game, with characters/4 as the token count;
+a real game and a real model are what would confirm them. Method, caveats and
+the table are in [docs/cost-and-timing.md](docs/cost-and-timing.md).
 
 ## Total customization
 
@@ -79,6 +81,17 @@ hoi4-harness play --guidance ./my-doctrine.md         # or your own file
 hoi4-harness play --system-prompt ./whole-thing.txt   # or replace the prompt entirely
 hoi4-harness play --profile profiles/unleashed.toml --live   # off the leash
 ```
+
+Point it at an install and a playset (`--game-dir`, `--mod`, or
+`HOI4_GAME_DIR` / `HOI4_MOD_DIRS`) and invented focus, technology, state and
+country ids are refused with the nearest real ones, the brief lists the focuses
+available now, and a total conversion is recorded as such — see
+[docs/playsets.md](docs/playsets.md).
+
+Playing alongside the model rather than watching it: `--advisor` (it recommends,
+you act), `--player-clock` (it never touches the clock) and `--handover` (its
+actions queue until you hand it the keyboard, and are re-checked before they
+run) — see [docs/co-op.md](docs/co-op.md).
 
 Also configurable: which actions exist at all (`--actions`, `--without`), whether
 the reflex layer runs (`--no-reflex` hands every decision to the model), whether
@@ -153,7 +166,8 @@ verification checklist: [docs/mod-bridge.md](docs/mod-bridge.md).
 - **[observation/](src/hoi4_harness/observation/)** — full briefs, deltas, and the rule for choosing.
 - **[agent/](src/hoi4_harness/agent/)** — policy, memory, budget, prompts, loop, and the provider layer.
 - **[eval/](src/hoi4_harness/eval/)** — scenarios with checkable objectives, scored on outcome *and* cost, and
-  reported against a recorded reflex-only baseline (`eval --no-llm --write-baseline`).
+  reported against a recorded reflex-only baseline (`eval --no-llm --write-baseline`),
+  across seeds (`--seeds N`, median and range). See [docs/evaluation.md](docs/evaluation.md).
 
 ## Status
 
@@ -165,14 +179,18 @@ verification checklist: [docs/mod-bridge.md](docs/mod-bridge.md).
 | Mock adapter | Working, tested, deterministic |
 | Log-tail adapter (reads the mod's telemetry) | Working, tested |
 | Hybrid control vocabulary + mode switch | Working, tested; unproven as strategy |
-| LLM Bridge mod | Skeleton; structure CI-checked, script tokens need verifying in-game |
-| Eval runner + scenarios | Working, tested (2 scenarios) |
+| LLM Bridge mod | Skeleton; structure CI-checked, script tokens need verifying in-game (`verify-bridge` checks them against an install and a log) |
+| Eval runner + scenarios | Working, tested (6 scenarios, multi-seed, cross-model) |
+| Cost measurement (`measure`) | Working, tested; measured against the mock with a scripted planner |
+| Wartime brief + wake rules | Working, tested against synthetic and scripted wars; unmeasured in a real one |
+| Identifier index (playsets) | Working, tested against a fixture playset; not yet run on a real install |
+| Per-target AI directives | Generated and CI-checked; strategy types need verifying in-game |
 | Guidance packs + profiles | Working, tested (6 packs, 3 example profiles) |
-| Anthropic / OpenAI-compatible providers | Written, not yet run against a live key |
+| Anthropic / OpenAI-compatible providers | Written, not yet run against a live key; conformance suite in `tests/live/` |
 | Gemini provider | Written; the SDK surface moves — check this first if it fails |
-| Save-file adapter | Clausewitz parser works; state mapping is TODO |
+| Save-file adapter | Parser and targeted block reading work; field mapping needs a real save (`save-inspect` shows what to map) |
 | Screen adapter | Capture works; vision→state is TODO |
-| Input driver | Hotkeys and clicks work; per-action UI scripts are TODO |
+| Input driver | Hotkeys, clicks and typing work; verified UI scripts for the five peacetime actions, click paths recorded per install (unrecorded in-game) |
 
 Nothing that is a stub pretends otherwise at runtime: an adapter that cannot
 perform an action refuses it, and a field it cannot read renders as `unknown`
@@ -193,6 +211,19 @@ hoi4-harness doctor
 
 See [.env.example](.env.example) for every environment variable, and
 [docs/customization.md](docs/customization.md) for the full settings table.
+
+To check a provider still speaks the wire format the harness expects — tool
+schema accepted, tool calls parsed back into valid actions, a second tool round
+accepted, usage reported, prefix caching where promised — run the live
+conformance suite. It is opt-in because it costs a few cents a provider:
+
+```bash
+HOI4_LIVE_TESTS=1 ANTHROPIC_API_KEY=... pytest tests/live -v -rs
+HOI4_LIVE_ANTHROPIC_MODEL=claude-haiku-4-5 ...   # pick the model per provider
+```
+
+It also runs weekly in `.github/workflows/live-model.yml` for whichever keys
+the repository has; providers without one skip.
 
 
 ## Where it goes next

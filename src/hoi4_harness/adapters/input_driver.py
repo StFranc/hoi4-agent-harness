@@ -1,10 +1,11 @@
 """Write-side sink: perform actions by driving keyboard and mouse.
 
-Status: skeleton. The mechanics (focus the window, move, click, hotkey) are
-straightforward. What is not straightforward, and what this file is structured
-around, is that a blind click is unverifiable: every action should act, re-read,
-and confirm the state actually changed, reporting failure rather than assuming
-success.
+The mechanics (focus the window, move, click, type, hotkey) are here. So is the
+part this file is structured around: a blind click is unverifiable, so every
+scripted action acts, re-reads through the reader it is composed with, and
+confirms the state actually changed -- reporting failure, or "unverified",
+rather than assuming success. The click paths themselves are recorded by the
+operator (``ui_scripts.py``); an action with no recorded path is refused.
 
 Hotkeys are far more reliable than coordinates and should be preferred wherever
 the game exposes one. Coordinates are resolution- and UI-scale-dependent and
@@ -15,12 +16,16 @@ resolution.
 
 from __future__ import annotations
 
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..calibration import load_calibration, screen_size
+from ..observation.builder import snapshot
 from ..types import ActionCall, ActionResult, GameState
 from .base import AdapterInfo, GameAdapter
+from .ui_scripts import Step, verify
 from .window import FocusCheck, check_focus
 
 HOTKEYS = {
@@ -60,18 +65,37 @@ class InputDriverAdapter(GameAdapter):
     Compose with a read-capable adapter (savegame or screen) via CompositeAdapter.
     """
 
-    supported_actions = frozenset({"set_game_speed", "advance_time", "note"})
+    BUILT_IN = frozenset({"set_game_speed", "advance_time", "note"})
 
     def __init__(
         self,
         config: InputConfig | None = None,
         dry_run: bool = True,
         focus_check=check_focus,
+        scripts: dict[str, list[Step]] | None = None,
+        read_state: Callable[[], GameState] | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+        verify_timeout: float = 3.0,
+        gui=None,
     ):
+        """``gui`` stands in for pyautogui -- what tests inject, so a test suite
+        for an input driver cannot drive the machine it runs on."""
         self.config = config or InputConfig()
         self.dry_run = dry_run
         self.log: list[str] = []
         self._focus_check = focus_check
+        #: Recorded click paths, one per action (see ui_scripts.py). An action
+        #: without one is refused: refusing is the honest answer.
+        self.scripts = dict(scripts or {})
+        self._read_state = read_state
+        self._sleep = sleep
+        self.verify_timeout = verify_timeout
+        self.supported_actions = self.BUILT_IN | frozenset(self.scripts)
+        self._gui_override = gui
+
+    def attach_reader(self, read_state: Callable[[], GameState]) -> None:
+        """Give the writer eyes: the reader that verifies what it did."""
+        self._read_state = read_state
 
     # --- the guard -----------------------------------------------------------
 
@@ -108,6 +132,8 @@ class InputDriverAdapter(GameAdapter):
         )
 
     def _gui(self):
+        if self._gui_override is not None:
+            return self._gui_override
         try:
             import pyautogui
         except ImportError as exc:  # pragma: no cover - optional dependency
@@ -132,6 +158,56 @@ class InputDriverAdapter(GameAdapter):
             gui.moveTo(point[0], point[1], duration=self.config.move_duration)
             gui.click()
 
+    def type_text(self, text: str) -> None:
+        self._require_focus()
+        self.log.append(f"type {text}")
+        if not self.dry_run:
+            self._gui().write(text, interval=0.02)
+
+    def _run_step(self, step: Step) -> None:
+        if step.kind == "press":
+            self.press(step.value)
+        elif step.kind == "click":
+            self.click(step.value)
+        elif step.kind == "type":
+            self.type_text(step.value)
+        elif step.kind == "wait":
+            self.log.append(f"wait {step.value}")
+            if not self.dry_run:
+                self._sleep(float(step.value))
+
+    def _scripted(self, call: ActionCall) -> ActionResult:
+        """Run the recorded click path, then prove it worked."""
+        steps = [step.fill(call.arguments) for step in self.scripts[call.name]]
+        missing = [s.value for s in steps if s.kind == "click" and s.value not in self.config.coordinates]
+        if missing:
+            # Before any input: half a script is worse than none.
+            return self._result(call, False, "rejected", (
+                f"no calibrated coordinate for {', '.join(missing)}. Run: hoi4-harness calibrate "
+                + " ".join(missing)
+            ))
+        if self.dry_run:
+            for step in steps:
+                self._run_step(step)
+            return self._result(call, False, "not_executed", (
+                "dry run: would " + "; ".join(s.describe() for s in steps)
+            ))
+        if self._read_state is None:
+            return self._result(call, False, "unverified",
+                                "no reader to verify with; nothing was sent")
+        before = snapshot(self._read_state())
+        for step in steps:
+            self._run_step(step)
+        self._sleep(self.config.settle_seconds)
+        outcome = verify(call, before, self._read_state, timeout=self.verify_timeout,
+                         sleep=self._sleep)
+        return self._result(call, outcome.ok, outcome.kind, outcome.message)
+
+    @staticmethod
+    def _result(call: ActionCall, ok: bool, kind: str | None, message: str) -> ActionResult:
+        return ActionResult(ok=ok, action=call.name, call_id=call.call_id,
+                            message=message, error_kind=kind)
+
     def load_calibration(
         self, path: Path, *, current_resolution: tuple[int, int] | None = None
     ) -> None:
@@ -154,7 +230,7 @@ class InputDriverAdapter(GameAdapter):
     def apply(self, call: ActionCall) -> ActionResult:
         try:
             return self._apply(call)
-        except NotFocused as exc:
+        except (NotFocused, KeyError) as exc:
             # The same contract as every other adapter failure: report it, do not
             # pretend the action happened. The agent can read this and wait.
             return ActionResult(
@@ -176,8 +252,8 @@ class InputDriverAdapter(GameAdapter):
         if call.name == "advance_time":
             return ActionResult(ok=True, action=call.name, call_id=call.call_id,
                                 message="Clock handed back to the harness.")
-        # TODO: one UI script per action, each ending in a verify step. Until an
-        # action has one, refusing is the honest answer.
+        if call.name in self.scripts:
+            return self._scripted(call)
         return self.unsupported(call)
 
     def pause(self) -> None:

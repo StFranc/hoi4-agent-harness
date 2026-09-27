@@ -15,6 +15,13 @@ DEFAULT_MODELS = {
     "scripted": "scripted",
 }
 
+def mod_dirs_from_env(raw: str | None) -> list[Path]:
+    """``HOI4_MOD_DIRS``: mod folders in load order, separated like PATH."""
+    if not raw:
+        return []
+    return [Path(part) for part in raw.split(os.pathsep) if part.strip()]
+
+
 def _env_bool(name: str, default: bool) -> bool:
     raw = os.environ.get(name)
     if raw is None or raw == "":
@@ -90,6 +97,12 @@ class BudgetConfig:
     max_usd: float | None = None
     usd_per_m_input: float = 0.0         # set from your provider's price sheet
     usd_per_m_output: float = 0.0
+    #: Cache reads and cache writes, per million. None bills them at the input
+    #: rate -- which overstates a cached run, so set them when you set the rest.
+    #: Typical ratios to the input rate: reads 0.1x (Anthropic), 0.25-0.5x
+    #: (OpenAI, Gemini); writes 1.25x (Anthropic 5-minute cache), none elsewhere.
+    usd_per_m_cached_input: float | None = None
+    usd_per_m_cache_write: float | None = None
 
     @classmethod
     def from_env(cls) -> BudgetConfig:
@@ -100,6 +113,8 @@ class BudgetConfig:
             max_usd=_env_float("HOI4_MAX_USD"),
             usd_per_m_input=_env_float("HOI4_USD_PER_M_INPUT", 0.0) or 0.0,
             usd_per_m_output=_env_float("HOI4_USD_PER_M_OUTPUT", 0.0) or 0.0,
+            usd_per_m_cached_input=_env_float("HOI4_USD_PER_M_CACHED_INPUT"),
+            usd_per_m_cache_write=_env_float("HOI4_USD_PER_M_CACHE_WRITE"),
         )
 
 
@@ -142,10 +157,20 @@ class HarnessConfig:
     full_brief_every: int = 8
     wake_on_free_research_slot: bool = True
     wake_on_no_focus: bool = True
+    # Wartime wake rules. Each fires on the onset of its condition, never on the
+    # condition standing, so a long siege does not wake the model every turn.
+    wake_on_encirclement: bool = True
+    wake_on_supply_collapse: bool = True
+    wake_on_capital_threat: bool = True
+    wake_on_ally_capitulation: bool = True
+    wake_on_front_quiet: bool = True
     # False is the reflex-only baseline: the model is never woken and the run is
     # free, which is what every planner-run score is reported against.
     planner_enabled: bool = True
     reflex_enabled: bool = True
+    # The AI-only arm of the hybrid experiment: the reflex layer hands every
+    # army to the game's AI. Never on by default -- see Policy._delegate.
+    reflex_delegate: bool = False
 
     # --- run ----------------------------------------------------------------
     turns: int = 10
@@ -157,6 +182,10 @@ class HarnessConfig:
     save_dir: Path | None = None
     log_path: Path | None = None          # game.log, for the logtail adapter
     window_title: str = "Hearts of Iron IV"
+    # The input driver's recorded click paths and screen coordinates. Default:
+    # ui_scripts.json and calibration.json in run_dir, when they exist.
+    ui_scripts_path: Path | None = None
+    calibration_path: Path | None = None
     # Refuse to send input unless the game is the focused window. Turning
     # this off is an explicit choice to let keystrokes land wherever they land.
     enforce_window_focus: bool = True
@@ -168,9 +197,19 @@ class HarnessConfig:
     # playing the same campaign, since being paused mid-battle by your own
     # tooling is worse than having no tooling.
     clock_owner: str = "harness"
+    # Co-op turn-taking: every action is queued and runs only when the player
+    # grants a window (handover.py). For playing alongside a person, not for
+    # scoring -- the eval runner refuses a handover run.
+    handover: bool = False
     country: str = "SWE"
     start_date: str = "1936-01-01"
     seed: int = 1936
+    # --- the playset: what identifiers exist --------------------------------
+    # The install (the folder holding hoi4.exe and common/) and the active mods
+    # in load order. With game_dir set, focus, technology, state and tag ids are
+    # checked against what the game actually loads -- see identifiers.py.
+    game_dir: Path | None = None
+    mod_dirs: list[Path] = field(default_factory=list)
 
     @classmethod
     def from_env(cls) -> HarnessConfig:
@@ -199,12 +238,19 @@ class HarnessConfig:
             save_dir=Path(save_dir) if save_dir else None,
             log_path=Path(log_path) if log_path else None,
             window_title=os.environ.get("HOI4_WINDOW_TITLE", "Hearts of Iron IV"),
+            ui_scripts_path=(Path(os.environ["HOI4_UI_SCRIPTS"])
+                             if os.environ.get("HOI4_UI_SCRIPTS") else None),
+            calibration_path=(Path(os.environ["HOI4_CALIBRATION"])
+                              if os.environ.get("HOI4_CALIBRATION") else None),
             enforce_window_focus=_env_bool("HOI4_ENFORCE_WINDOW_FOCUS", True),
             operational_control=os.environ.get("HOI4_OPERATIONAL_CONTROL", "llm").strip(),
             clock_owner=os.environ.get("HOI4_CLOCK_OWNER", "harness").strip(),
+            handover=_env_bool("HOI4_HANDOVER", False),
             country=os.environ.get("HOI4_COUNTRY", "SWE"),
             start_date=os.environ.get("HOI4_START_DATE", "1936-01-01"),
             seed=_env_int("HOI4_SEED", 1936),
+            game_dir=Path(os.environ["HOI4_GAME_DIR"]) if os.environ.get("HOI4_GAME_DIR") else None,
+            mod_dirs=mod_dirs_from_env(os.environ.get("HOI4_MOD_DIRS")),
         )
 
     @classmethod
@@ -238,13 +284,24 @@ class HarnessConfig:
             elif key == "budget" and isinstance(value, dict):
                 for sub_key, sub_value in value.items():
                     setattr(self.budget, sub_key, sub_value)
-            elif key in {"run_dir", "save_dir", "system_prompt_path"} and value is not None:
+            elif key in {"run_dir", "save_dir", "system_prompt_path", "game_dir", "ui_scripts_path",
+                         "calibration_path"} and value is not None:
                 setattr(self, key, Path(value))
+            elif key == "mod_dirs":
+                self.mod_dirs = [Path(v) for v in value]
             elif hasattr(self, key):
                 setattr(self, key, value)
             else:
                 raise KeyError(f"Unknown configuration key {key!r}")
         return self
+
+    def build_index(self):
+        """The identifier index for the configured playset, or None without one."""
+        if self.game_dir is None:
+            return None
+        from .identifiers import IdentifierIndex, Playset
+
+        return IdentifierIndex.build(Playset.from_paths(self.game_dir, self.mod_dirs))
 
     def allowed_actions(self, adapter_supports: set[str]) -> set[str]:
         """Adapter capability, narrowed by control mode then by the operator.

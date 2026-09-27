@@ -46,15 +46,36 @@ class Msg:
 
 @dataclass
 class Usage:
+    """Token counts for one call, in one meaning across every provider.
+
+    Vendors disagree about what their own fields mean, so each provider maps
+    onto this and the budget never has to know which one it is pricing:
+
+    * ``input_tokens`` -- **every** input token the call billed: uncached,
+      read from cache, and written to cache. (Anthropic reports these three
+      separately; OpenAI and Gemini fold cache reads into their prompt count.)
+    * ``cached_input_tokens`` -- the part of ``input_tokens`` read from cache.
+    * ``cache_write_input_tokens`` -- the part written to cache, which Anthropic
+      bills *above* the input rate. Zero where a provider caches implicitly.
+    * ``output_tokens`` -- every output token billed, reasoning included.
+      (Gemini reports thinking tokens apart from the answer; they bill as output.)
+    """
+
     input_tokens: int = 0
     output_tokens: int = 0
     cached_input_tokens: int = 0
+    cache_write_input_tokens: int = 0
+
+    @property
+    def uncached_input_tokens(self) -> int:
+        return max(0, self.input_tokens - self.cached_input_tokens - self.cache_write_input_tokens)
 
     def __add__(self, other: Usage) -> Usage:
         return Usage(
             self.input_tokens + other.input_tokens,
             self.output_tokens + other.output_tokens,
             self.cached_input_tokens + other.cached_input_tokens,
+            self.cache_write_input_tokens + other.cache_write_input_tokens,
         )
 
 

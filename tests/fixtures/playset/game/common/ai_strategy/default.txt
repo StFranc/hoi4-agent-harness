@@ -1,0 +1,6 @@
+fixture_strategy = {
+	enable = { always = yes }
+	ai_strategy = { type = front_unit_request value = 10 }
+	ai_strategy = { type = protect id = "FIN" value = 10 }
+	ai_strategy = { type = conquer id = "POL" value = 10 }
+}

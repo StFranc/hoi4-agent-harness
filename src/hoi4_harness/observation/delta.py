@@ -12,6 +12,7 @@ they are the reason the turn is happening.
 from __future__ import annotations
 
 from ..types import GameState
+from .fronts import front_changes
 
 SCALARS = [
     ("political_power", "PP", 5.0),
@@ -47,7 +48,7 @@ def render_delta(previous: GameState, current: GameState) -> str:
         if abs(after - before) >= threshold:
             lines.append(f"{label}: {_fmt(field, before)} -> {_fmt(field, after)}")
 
-    if previous.national_focus != current.national_focus:
+    if previous.national_focus != current.national_focus and current.known("national_focus"):
         was = previous.national_focus or "none"
         now = current.national_focus or "NONE SELECTED"
         lines.append(f"Focus: {was} -> {now}")
@@ -76,16 +77,17 @@ def render_delta(previous: GameState, current: GameState) -> str:
     for tag in sorted(before_wars - after_wars):
         lines.append(f"War ended: {tag}")
 
-    for front in current.fronts:
-        was = next((f for f in previous.fronts if f.name == front.name), None)
-        if was is None or was.pressure != front.pressure:
-            lines.append(
-                f"Front {front.name}: {front.pressure} "
-                f"({front.divisions_friendly}v{front.divisions_enemy})"
-            )
+    lines.extend(front_changes(previous.fronts, current.fronts))
 
     if previous.posture != current.posture:
         lines.append(f"AI posture: {previous.posture or 'default'} -> {current.posture}")
+    for theater in sorted(set(previous.theater_postures) | set(current.theater_postures)):
+        was = previous.theater_postures.get(theater)
+        now = current.theater_postures.get(theater)
+        if was != now:
+            lines.append(
+                f"AI posture on {theater}: {was or 'global'} -> {now or 'global'}"
+            )
     if set(previous.ai_directives) != set(current.ai_directives):
         added = [d for d in current.ai_directives if d not in previous.ai_directives]
         dropped = [d for d in previous.ai_directives if d not in current.ai_directives]

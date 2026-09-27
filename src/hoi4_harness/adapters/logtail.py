@@ -38,6 +38,9 @@ EVENT_CODES = {
     "10": ("posture_defensive", "info"),
     "11": ("posture_offensive", "info"),
     "12": ("directives_cleared", "info"),
+    # Mirrored from modgen.EVENT_TARGET_SELECTED / EVENT_DIRECTIVE_RAISED.
+    "13": ("directive_target_selected", "info"),
+    "14": ("directive_raised", "info"),
 }
 
 # Telemetry field -> (GameState attribute, converter)
@@ -52,7 +55,18 @@ FIELDS = {
 }
 
 # Fields the mod does not emit yet. Reported as unknown rather than defaulted.
-NOT_EMITTED = ["research", "production", "construction", "fronts", "wars", "national_focus"]
+NOT_EMITTED = [
+    "research", "production", "construction", "fronts", "wars", "national_focus",
+    "completed_focuses",
+    # Hybrid control: the mod raises flags but reports only posture changes, as
+    # events. Posture becomes known the first time one arrives.
+    "posture", "ai_directives", "delegated_armies",
+    # Posture events are global; nothing reports a per-theater posture.
+    "theater_postures",
+]
+
+#: Events that say what the AI's posture now is.
+POSTURE_EVENTS = {"posture_defensive": "defensive", "posture_offensive": "offensive"}
 
 
 def find_log(explicit: Path | None = None) -> Path | None:
@@ -204,6 +218,25 @@ class LogTailAdapter(GameAdapter):
         elif kind == "evt":
             code = fields.get("kind", "")
             event_kind, severity = EVENT_CODES.get(code, (code or "unknown", "info"))
+            if event_kind in POSTURE_EVENTS or event_kind == "directives_cleared":
+                state.posture = POSTURE_EVENTS.get(event_kind)
+                if "posture" in state.unknown_fields:
+                    state.unknown_fields.remove("posture")
+            if event_kind == "directives_cleared":
+                # Standing down clears every directive: from here on the list is
+                # complete, not just what has been seen.
+                state.ai_directives = []
+                if "ai_directives" in state.unknown_fields:
+                    state.unknown_fields.remove("ai_directives")
+            elif event_kind == "directive_raised":
+                # Each raise logs "<directive> <TAG>" as a literal. Directives
+                # raised before the harness started reading are not in this list
+                # until a stand-down resets it; a raise it did see always is.
+                entry = fields.get("detail", "").strip()
+                if entry and entry not in state.ai_directives:
+                    state.ai_directives.append(entry)
+                if "ai_directives" in state.unknown_fields:
+                    state.unknown_fields.remove("ai_directives")
             self._pending.append(
                 GameEvent(
                     kind=event_kind,
@@ -222,6 +255,19 @@ class LogTailAdapter(GameAdapter):
             )
         self._state.events = list(self._pending)
         self._pending = []
+        return self._state
+
+    def peek_state(self) -> GameState:
+        """The state now, without draining pending events.
+
+        For the input driver's verification polling: an extra read there must
+        not swallow a war declaration before the loop's own read, which is what
+        decides whether to wake the planner.
+        """
+        self.poll()
+        if not self._seen_any:
+            raise RuntimeError("game.log has no LLM Bridge telemetry yet.")
+        self._state.events = list(self._pending)
         return self._state
 
     def apply(self, call: ActionCall) -> ActionResult:

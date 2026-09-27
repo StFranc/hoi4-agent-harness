@@ -107,6 +107,7 @@ def _apply(state: ResumeState, record: dict, date_turn: tuple[str, int]) -> None
             input_tokens=int(usage.get("input_tokens", 0)),
             output_tokens=int(usage.get("output_tokens", 0)),
             cached_input_tokens=int(usage.get("cached_input_tokens", 0)),
+            cache_write_input_tokens=int(usage.get("cache_write_input_tokens", 0)),
         )
         for call in record.get("tool_calls") or []:
             if call.get("name") == "note":

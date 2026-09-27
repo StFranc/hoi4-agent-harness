@@ -12,19 +12,36 @@ from .actions import registry
 from .adapters.base import GameAdapter
 from .config import HarnessConfig
 from .confirm import Confirmation
+from .handover import PASS_THROUGH, HandoverQueue, HandoverReport
+from .identifiers import IdentifierIndex
 from .observation import ObservationBuilder
+from .observation.directives import DirectiveTracker
 from .types import ActionCall, ActionResult, GameState, Observation
 
 
 class HOI4Env:
-    def __init__(self, adapter: GameAdapter, config: HarnessConfig | None = None):
+    def __init__(
+        self,
+        adapter: GameAdapter,
+        config: HarnessConfig | None = None,
+        index: IdentifierIndex | None = None,
+    ):
         self.adapter = adapter
         self.config = config or HarnessConfig()
+        #: What ids exist in the playset. None: nothing to check against, and
+        #: ids pass through to the adapter as before.
+        self.index = index
         self.builder = ObservationBuilder(full_brief_every=self.config.full_brief_every)
         self.turn = 0
         # set to a callable(Confirmation) -> bool for human approval, e.g. the
         # terminal prompt in confirm.py
         self.confirm_hook = None
+        #: What each standing AI directive has visibly changed. The adapter's
+        #: "Directive standing" only proves the harness recorded it.
+        self.directives = DirectiveTracker()
+        #: Co-op: actions wait here until the player hands over the keyboard.
+        self.handover = HandoverQueue(self.config.run_dir) if self.config.handover else None
+        self._last_handover: HandoverReport | None = None
 
     # --- observation ---------------------------------------------------------
 
@@ -38,13 +55,35 @@ class HOI4Env:
 
     def observe(self, notes: list[str] | None = None, *, remember: bool = True) -> Observation:
         state = self.adapter.read_state()
-        return self.builder.build(
+        observation = self.builder.build(
             state,
             turn=self.turn,
             legal_actions=sorted(self.allowed_actions),
             notes=notes,
             remember=remember,
         )
+        # Every brief, full or delta: a directive that has done nothing for a
+        # month is exactly the news that must not be diffed away.
+        extra = self.directives.render(state)
+        if self._last_handover is not None:
+            # Said once: what the last window actually did, stale ones included,
+            # so the model replans on what happened rather than what it queued.
+            extra.append(self._last_handover.summary())
+            self._last_handover = None
+        if self.handover is not None:
+            extra += self.handover.describe()
+        if self.index is not None:
+            extra += self.index.brief_lines(state)
+        if extra:
+            observation.brief += "\n" + "\n".join(extra)
+        return observation
+
+    @property
+    def playset(self) -> dict:
+        """What the transcript records about the world this run played in."""
+        if self.index is not None:
+            return {**self.index.playset.describe(), **self.index.summary()}
+        return {"name": f"unindexed ({self.adapter.info().name})"}
 
     @property
     def owns_clock(self) -> bool:
@@ -81,6 +120,10 @@ class HOI4Env:
             )
 
         problem = registry.check(call, self.allowed_actions)
+        if problem is None and self.index is not None:
+            # An invented id never reaches the game, where it would do nothing
+            # silently; the model gets the nearest real ones instead.
+            problem = self.index.check(call, self.adapter.read_state().country)
         if problem is not None:
             return problem
 
@@ -107,8 +150,15 @@ class HOI4Env:
                     error_kind="rejected",
                 )
 
+        if self.handover is not None and call.name not in PASS_THROUGH:
+            # The player owns the keyboard: decide now, click when handed over.
+            state = self.adapter.read_state()
+            return self.handover.enqueue(call, state.date, self.turn)
+        return self._apply(call)
+
+    def _apply(self, call: ActionCall) -> ActionResult:
         try:
-            return self.adapter.apply(call)
+            result = self.adapter.apply(call)
         except Exception as exc:  # noqa: BLE001 - an adapter fault must not end the run
             return ActionResult(
                 ok=False,
@@ -117,6 +167,41 @@ class HOI4Env:
                 message=f"Adapter raised {type(exc).__name__}: {exc}",
                 error_kind="rejected",
             )
+        if result.ok:
+            self._track_directive(call)
+        return result
+
+    def run_handover(self) -> HandoverReport | None:
+        """Run the queued actions if the player has granted a window.
+
+        Each is validated again at execution time -- the operator's whitelist
+        or the playset may not have changed, but the call was accepted a while
+        ago and this is the last point before input reaches the game.
+        """
+        if self.handover is None:
+            return None
+
+        def apply(call: ActionCall) -> ActionResult:
+            problem = registry.check(call, self.allowed_actions)
+            if problem is None and self.index is not None:
+                problem = self.index.check(call, self.adapter.read_state().country)
+            return problem if problem is not None else self._apply(call)
+
+        report = self.handover.run(self.adapter.read_state, apply)
+        if report is not None:
+            self._last_handover = report
+        return report
+
+    def _track_directive(self, call: ActionCall) -> None:
+        if call.name == "set_ai_directive":
+            self.directives.raised(
+                call.arguments["directive"],
+                call.arguments["target"],
+                int(call.arguments.get("weight", 100)),
+                self.adapter.read_state(),
+            )
+        elif call.name == "clear_ai_directives":
+            self.directives.clear()
 
     def act_many(self, calls: list[ActionCall], date: str = "") -> list[ActionResult]:
         results: list[ActionResult] = []

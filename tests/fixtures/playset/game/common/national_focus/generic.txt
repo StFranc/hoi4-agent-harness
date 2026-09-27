@@ -1,0 +1,7 @@
+focus_tree = {
+	id = generic_focus
+	country = { factor = 1 }
+	default = yes
+	focus = { id = GEN_army_effort }
+	focus = { id = GEN_equipment_effort prerequisite = { focus = GEN_army_effort } }
+}

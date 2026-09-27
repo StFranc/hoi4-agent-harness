@@ -47,7 +47,14 @@ class DivisionGroup:
 
 @dataclass
 class Front:
-    """One contiguous fighting line, from the agent's point of view."""
+    """One contiguous fighting line, from the agent's point of view.
+
+    Derived from army and combat data, never from province lists: a province
+    list is enormous and a war has several fronts at once, which is the one
+    place a brief's size can run away. Everything past ``pressure`` is optional
+    because an adapter that cannot see it must say nothing rather than a
+    reassuring default -- ``supply=None`` is "not observed", not "fine".
+    """
 
     name: str
     enemy: str
@@ -55,6 +62,12 @@ class Front:
     divisions_enemy: int = 0
     stance: str = "hold"          # hold | offensive | retreat
     pressure: str = "stable"      # stable | advancing | losing_ground
+    #: Worst-supplied sector on this front, as a fraction of demand met (0-1).
+    supply: float | None = None
+    #: Friendly divisions at risk of being cut off. 0 when no pocket is forming.
+    pocket_divisions: int = 0
+    #: The capital or a victory-point cluster lies behind this front, in reach.
+    threatens_capital: bool = False
 
 
 @dataclass
@@ -63,6 +76,36 @@ class War:
     since: str | None = None
     war_score: float = 0.0
     allies: list[str] = field(default_factory=list)
+
+
+@dataclass
+class WarChange:
+    """One dated change to a war the mock is scripted to fight.
+
+    A start describes where a campaign begins; a timeline describes how its
+    wars move on their own -- fronts opening, an enemy capitulating, an ally
+    falling, the enemy reinforcing a sector. It is how the mock produces a
+    1939-1941 war for measuring brief size and wake rate (#14) without a game.
+    The *agent's* effect on that war stays the mock's crude front rule; the
+    timeline only moves what the agent does not control.
+    """
+
+    date: str
+    open_wars: list[War] = field(default_factory=list)
+    #: Tags whose war with this country ends (a capitulation or a peace).
+    end_wars: list[str] = field(default_factory=list)
+    open_fronts: list[Front] = field(default_factory=list)
+    close_fronts: list[str] = field(default_factory=list)
+    #: Front name -> the enemy's new division count there.
+    enemy_divisions: dict[str, int] = field(default_factory=dict)
+    #: Allies that capitulate: removed from every war, with an event.
+    allies_fall: list[str] = field(default_factory=list)
+    #: Front name -> supply forced to this fraction (weather, a cut rail line).
+    supply: dict[str, float] = field(default_factory=dict)
+    #: Divisions that arrive at "home" (mobilisation, an ally's expeditionary force).
+    reinforcements: int = 0
+    #: (kind, text, severity) to emit on the day, if any.
+    event: tuple[str, str, str] | None = None
 
 
 @dataclass
@@ -100,6 +143,8 @@ class ScenarioStart:
     #: Extra scripted history, date -> (kind, text, severity), merged over the
     #: adapter's own script. This is how a scenario fixes its own war date.
     events: dict[str, tuple[str, str, str]] | None = None
+    #: How the wars move on their own after the start, in date order.
+    timeline: list[WarChange] | None = None
 
 
 @dataclass
@@ -144,6 +189,9 @@ class GameState:
     convoys: int = 0
     national_focus: str | None = None
     focus_days_remaining: int | None = None
+    #: Focuses finished so far, when the adapter can see them. It is what lets
+    #: the brief offer the focuses available *now* rather than the whole tree.
+    completed_focuses: list[str] = field(default_factory=list)
     ideology: str = "neutrality"
     research: list[ResearchSlot] = field(default_factory=list)
     production: list[ProductionLine] = field(default_factory=list)
@@ -160,6 +208,10 @@ class GameState:
     delegated_armies: list[str] = field(default_factory=list)
     ai_directives: list[str] = field(default_factory=list)
     posture: str | None = None
+    #: Posture scoped to one theater, overriding ``posture`` there. A theater is
+    #: a front, by name: the cheapest definition that expresses "hold in the
+    #: east, press in the west", and one the brief already names.
+    theater_postures: dict[str, str] = field(default_factory=dict)
     events: list[GameEvent] = field(default_factory=list)
     unknown_fields: list[str] = field(default_factory=list)
     raw: dict[str, Any] = field(default_factory=dict, repr=False)

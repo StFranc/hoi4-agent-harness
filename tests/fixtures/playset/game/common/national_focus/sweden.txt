@@ -1,0 +1,36 @@
+focus_tree = {
+	id = swedish_focus
+	country = {
+		factor = 0
+		modifier = {
+			add = 10
+			tag = SWE
+		}
+	}
+	shared_focus = SHARED_root
+	# A comment with a brace in it: {
+	focus = {
+		id = SWE_expand_industry
+		x = 1
+		y = 0
+		completion_reward = {
+			add_ideas = "SWE_#_not_a_comment"
+		}
+	}
+	focus = {
+		id = SWE_civilian_industry
+		prerequisite = { focus = SWE_expand_industry }
+	}
+	focus = {
+		id = SWE_arms_industry
+		# OR: either prerequisite will do
+		prerequisite = { focus = SWE_civilian_industry focus = SWE_expand_industry }
+	}
+	focus = {
+		id = SWE_modern_army
+		# AND: both groups must be met
+		prerequisite = { focus = SWE_civilian_industry }
+		prerequisite = { focus = SWE_arms_industry }
+		available = { num_of_factories > 20 }
+	}
+}

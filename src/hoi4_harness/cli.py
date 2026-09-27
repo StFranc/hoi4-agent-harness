@@ -9,6 +9,14 @@
     hoi4-harness eval economy_ramp          run a scenario and score it
     hoi4-harness eval --no-llm              score every scenario on reflexes alone
     hoi4-harness compare economy_ramp       the same scenario across models, one table
+    hoi4-harness measure --campaign wartime_1939_1941   brief size and wake rate in a war
+    hoi4-harness index --game-dir PATH      what countries and focuses a playset defines
+    hoi4-harness experiment defensive_war   model-only vs AI-only vs hybrid, same seeds
+    hoi4-harness play --handover            co-op: queue actions until the player hands over
+    hoi4-harness handover                   hand the keyboard to a --handover session
+    hoi4-harness verify-bridge              check the mod's tokens against an install and a log
+    hoi4-harness save-inspect               what a save contains, for mapping it
+    hoi4-harness mod-directives --tags ...  regenerate the mod's per-target directives
 
 Everything defaults to the mock adapter and the scripted model, so a fresh clone
 does something useful with no API key and no game installed.
@@ -63,6 +71,8 @@ def _config_from_args(args: argparse.Namespace) -> HarnessConfig:
         config.enforce_window_focus = False
     if getattr(args, "advisor", False):
         config.advisor = True
+    if getattr(args, "handover", False):
+        config.handover = True
     if getattr(args, "run_dir", None):
         config.run_dir = Path(args.run_dir)
     if getattr(args, "guidance", None):
@@ -89,7 +99,18 @@ def _config_from_args(args: argparse.Namespace) -> HarnessConfig:
         config.start_date = args.start_date
     if getattr(args, "seed", None) is not None:
         config.seed = args.seed
+    if getattr(args, "game_dir", None):
+        config.game_dir = Path(args.game_dir)
+    if getattr(args, "log_path_arg", None):
+        config.log_path = Path(args.log_path_arg)
+    if getattr(args, "mods", None):
+        config.mod_dirs = [Path(m) for m in args.mods]
     return config
+
+
+def _env_from_config(config: HarnessConfig) -> HOI4Env:
+    """The environment, with the playset's identifier index when one is configured."""
+    return HOI4Env(build_adapter(config), config, index=config.build_index())
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
@@ -103,6 +124,17 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     print(f"clock owner      {config.clock_owner}")
     print(f"guidance         {config.system_prompt_path or config.guidance}")
     print(f"confirm gate     {config.require_confirmation}")
+    budget = config.budget
+    if config.planner_enabled and config.planner.provider != "scripted" and not (
+        budget.usd_per_m_input or budget.usd_per_m_output
+    ):
+        print("pricing          UNSET -- spend will read $0.00; set HOI4_USD_PER_M_INPUT/OUTPUT")
+    elif budget.usd_per_m_input or budget.usd_per_m_output:
+        cached = budget.usd_per_m_cached_input
+        print(
+            f"pricing          ${budget.usd_per_m_input}/M in, ${budget.usd_per_m_output}/M out, "
+            + (f"${cached}/M cache read" if cached is not None else "cache reads at the input rate")
+        )
 
     for module, extra in (
         ("anthropic", "anthropic"),
@@ -154,7 +186,11 @@ def cmd_actions(args: argparse.Namespace) -> int:
 
 def cmd_observe(args: argparse.Namespace) -> int:
     config = _config_from_args(args)
-    env = HOI4Env(build_adapter(config), config)
+    try:
+        env = _env_from_config(config)
+    except FileNotFoundError as exc:
+        print(f"observe: {exc}", file=sys.stderr)
+        return 1
     observation = env.reset()
     print(observation.brief)
     return 0
@@ -162,7 +198,15 @@ def cmd_observe(args: argparse.Namespace) -> int:
 
 def cmd_play(args: argparse.Namespace) -> int:
     config = _config_from_args(args)
-    env = HOI4Env(build_adapter(config), config)
+    if config.handover and config.advisor:
+        print("play: --advisor never acts, so there is nothing to hand over; pick one",
+              file=sys.stderr)
+        return 2
+    try:
+        env = _env_from_config(config)
+    except FileNotFoundError as exc:
+        print(f"play: {exc}", file=sys.stderr)
+        return 1
     env.reset()
     run_dir = config.run_dir
     resume = bool(getattr(args, "resume", False))
@@ -214,7 +258,7 @@ def cmd_replay(args: argparse.Namespace) -> int:
 
 
 def cmd_eval(args: argparse.Namespace) -> int:
-    from .eval import SCENARIOS, ScoreCard, run_scenario, write_baselines
+    from .eval import SCENARIOS, ScoreCard, run_scenario, run_seeds, write_baselines
 
     config = _config_from_args(args)
     if getattr(args, "write_baseline", False) and config.planner_enabled:
@@ -226,10 +270,26 @@ def cmd_eval(args: argparse.Namespace) -> int:
         )
         return 2
 
+    seeds = max(1, getattr(args, "seeds", 1) or 1)
+    if getattr(args, "write_baseline", False) and seeds > 1:
+        print("--write-baseline records one reflex-only run per scenario; drop --seeds.",
+              file=sys.stderr)
+        return 2
+    if args.scenario and args.scenario not in SCENARIOS:
+        print(f"eval: unknown scenario {args.scenario!r}. Known: {', '.join(SCENARIOS)}",
+              file=sys.stderr)
+        return 2
+
     keys = [args.scenario] if args.scenario else list(SCENARIOS)
     failed = 0
     cards: dict[str, ScoreCard] = {}
     for key in keys:
+        if seeds > 1:
+            aggregate = run_seeds(SCENARIOS[key], config, seeds, transcript_dir=config.run_dir)
+            print(aggregate.render())
+            print()
+            failed += aggregate.median < 1.0
+            continue
         card = run_scenario(key, config, transcript_dir=config.run_dir)
         print(card.render())
         print()
@@ -246,13 +306,170 @@ def cmd_compare(args: argparse.Namespace) -> int:
     config = _config_from_args(args)
     specs = [s.strip() for s in args.models.split(",") if s.strip()] if args.models else None
     try:
-        print(compare(args.scenario, specs, config).render())
+        print(compare(args.scenario, specs, config, seeds=max(1, args.seeds or 1)).render())
     except KeyError as exc:
         # The scenario is resolved before any model runs; the message names the
         # known ones.
         print(f"compare: {exc.args[0]}", file=sys.stderr)
         return 2
     return 0
+
+
+def cmd_measure(args: argparse.Namespace) -> int:
+    from .eval import CAMPAIGNS, measure, run_scenario
+
+    if bool(args.transcript) == bool(args.campaign):
+        print("measure: give a transcript, or --campaign NAME to play one first", file=sys.stderr)
+        return 2
+    if args.campaign:
+        if args.campaign not in CAMPAIGNS:
+            print(f"measure: unknown campaign {args.campaign!r}. Known: {', '.join(CAMPAIGNS)}",
+                  file=sys.stderr)
+            return 2
+        config = _config_from_args(args)
+        run_scenario(CAMPAIGNS[args.campaign], config, transcript_dir=config.run_dir)
+        path = config.run_dir / f"{args.campaign}.jsonl"
+    else:
+        path = Path(args.transcript)
+        if not path.exists():
+            print(f"measure: no such transcript {path}", file=sys.stderr)
+            return 1
+    print(measure(path).render())
+    return 0
+
+
+def cmd_handover(args: argparse.Namespace) -> int:
+    """Grant (or take back) the keyboard for a running --handover session."""
+    from .handover import QUEUE_FILENAME, HandoverQueue
+
+    config = _config_from_args(args)
+    queue = HandoverQueue(config.run_dir)
+    if args.release:
+        queue._release()
+        print("control taken back: the harness stops before its next action")
+        return 0
+    pending = config.run_dir / QUEUE_FILENAME
+    if pending.exists():
+        items = json.loads(pending.read_text(encoding="utf-8"))
+        for item in items:
+            print(f"  #{item['position']} {item['action']} {json.dumps(item['arguments'])}")
+        if not items:
+            print("nothing queued")
+    queue.grant()
+    print(f"control handed over ({queue.grant_path}); the harness runs its queue at the next turn")
+    return 0
+
+
+def cmd_mod_directives(args: argparse.Namespace) -> int:
+    """Regenerate the mod's per-target directive files, or check they are current."""
+    from . import modgen
+
+    mod_dir = Path(args.mod_dir)
+    tags = [t for t in (args.tags or "").split(",") if t.strip()] or list(modgen.DEFAULT_TAGS)
+    try:
+        if args.check:
+            stale = modgen.drift(mod_dir, tags)
+            for path in stale:
+                print(f"stale: {path}", file=sys.stderr)
+            return 1 if stale else 0
+        for path in modgen.write(mod_dir, tags):
+            print(f"wrote {path}")
+    except ValueError as exc:
+        print(f"mod-directives: {exc}", file=sys.stderr)
+        return 2
+    return 0
+
+
+def cmd_index(args: argparse.Namespace) -> int:
+    """What exists in the configured playset: countries, focuses, technologies, states."""
+    config = _config_from_args(args)
+    if config.game_dir is None:
+        print("index: point --game-dir (or HOI4_GAME_DIR) at the HOI4 install", file=sys.stderr)
+        return 2
+    try:
+        index = config.build_index()
+    except FileNotFoundError as exc:
+        print(f"index: {exc}", file=sys.stderr)
+        return 1
+    summary = index.summary()
+    print(f"playset          {summary['playset']}  [{summary['fingerprint']}]")
+    for mod in index.playset.mods:
+        print(f"  mod            {mod.name} {mod.version}".rstrip() + f"  ({mod.path})")
+    print(f"countries        {summary['tags']}: {' '.join(sorted(index.tags)[:40])}"
+          + (" ..." if summary["tags"] > 40 else ""))
+    print(f"focus trees      {summary['focus_trees']} ({summary['focuses']} focuses)")
+    print(f"technologies     {summary['technologies']}")
+    print(f"states           {summary['states']}")
+    if args.country:
+        tag = args.country.upper()
+        trees = index.trees_for(tag)
+        focuses = index.focuses_for(tag)
+        print()
+        print(f"{tag}: {', '.join(t.id for t in trees) or 'no focus tree'}"
+              f" -- {len(focuses)} focuses")
+        roots = [f.id for f in focuses.values() if not f.prerequisites]
+        print(f"  start with: {', '.join(roots) or '-'}")
+        if args.all:
+            for focus_id in sorted(focuses):
+                print(f"  {focus_id}")
+    return 0
+
+
+def cmd_experiment(args: argparse.Namespace) -> int:
+    from .eval.experiment import run_experiment
+
+    config = _config_from_args(args)
+    try:
+        result = run_experiment(args.scenario, config, seeds=args.seeds,
+                                transcript_dir=config.run_dir / "experiment")
+    except KeyError as exc:
+        print(f"experiment: {exc.args[0]}", file=sys.stderr)
+        return 2
+    print(result.render())
+    return 0
+
+
+def cmd_save_inspect(args: argparse.Namespace) -> int:
+    """Show what a real save contains, so the save mapping is written from the file."""
+    from .adapters.savegame import find_save_dir, inspect, latest_save
+
+    config = _config_from_args(args)
+    path = Path(args.save) if args.save else None
+    if path is None:
+        save_dir = find_save_dir(config.save_dir)
+        path = latest_save(save_dir) if save_dir else None
+    if path is None or not path.exists():
+        print("save-inspect: no save found; pass a path or set HOI4_SAVE_DIR", file=sys.stderr)
+        return 1
+    print(inspect(path))
+    return 0
+
+
+def cmd_verify_bridge(args: argparse.Namespace) -> int:
+    """Check the bridge mod's tokens against the install, and its telemetry against a log."""
+    from .adapters.logtail import find_log
+    from .bridge_check import check_log, check_tokens
+
+    config = _config_from_args(args)
+    checked, failed = 0, False
+    if config.game_dir is not None:
+        report = check_tokens(config.game_dir)
+        print(report.render())
+        checked += 1
+        failed |= not report.ok
+    log = find_log(config.log_path)
+    if log is not None and log.exists():
+        if checked:
+            print()
+        report = check_log(log)
+        print(report.render())
+        checked += 1
+        failed |= not report.ok
+    if not checked:
+        print("verify-bridge: give --game-dir (tokens) and/or HOI4_LOG_PATH (telemetry)",
+              file=sys.stderr)
+        return 2
+    return 1 if failed else 0
 
 
 def cmd_prompt(args: argparse.Namespace) -> int:
@@ -270,12 +487,31 @@ def cmd_prompt(args: argparse.Namespace) -> int:
     return 0
 
 
+def calibration_targets(config: HarnessConfig) -> list[str]:
+    """What to calibrate when the operator names nothing: every concrete target
+    the recorded UI scripts click, else the default panel list. A templated
+    target ('construction.{building}') cannot be aimed at, so it is reported
+    and left for the operator to name per value."""
+    from .adapters.ui_scripts import DEFAULT_FILENAME as SCRIPTS_FILENAME
+    from .adapters.ui_scripts import load_scripts, targets_in
+
+    path = config.ui_scripts_path or config.run_dir / SCRIPTS_FILENAME
+    if not Path(path).exists():
+        return list(DEFAULT_TARGETS)
+    targets = targets_in(load_scripts(path))
+    templated = [t for t in targets if "{" in t]
+    for target in templated:
+        print(f"note: {target} depends on the action's arguments; calibrate each value by name",
+              file=sys.stderr)
+    return [t for t in targets if "{" not in t] or list(DEFAULT_TARGETS)
+
+
 def cmd_calibrate(args: argparse.Namespace) -> int:
     from .calibration import capture_calibration, save_calibration
 
     config = _config_from_args(args)
     out = Path(args.out) if args.out else config.run_dir / DEFAULT_FILENAME
-    targets = args.targets or DEFAULT_TARGETS
+    targets = args.targets or calibration_targets(config)
     try:
         calibration = capture_calibration(targets)
     except RuntimeError as exc:  # most likely the missing 'input' extra; report, don't crash
@@ -324,6 +560,10 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--country", help="country tag (mock adapter)")
         p.add_argument("--start-date", dest="start_date", help="start date (mock adapter)")
         p.add_argument("--seed", type=int, help="mock adapter seed")
+        p.add_argument("--game-dir", dest="game_dir", metavar="PATH",
+                       help="HOI4 install folder: check ids against what the game loads")
+        p.add_argument("--mod", dest="mods", action="append", metavar="PATH",
+                       help="an active mod folder; repeat in load order")
 
     doctor = sub.add_parser("doctor", help="check the environment")
     common(doctor)
@@ -346,6 +586,8 @@ def build_parser() -> argparse.ArgumentParser:
     play.add_argument("--turns", type=int)
     play.add_argument("--advisor", action="store_true",
                       help="recommend, never act: every tool call is shown to the player instead")
+    play.add_argument("--handover", action="store_true",
+                      help="co-op: queue every action until the player runs `hoi4-harness handover`")
     play.add_argument("--days", type=int, help="in-game days per turn")
     play.add_argument(
         "--resume",
@@ -372,6 +614,8 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--strict", action="store_true", help="exit 1 unless every objective passes")
     evaluate.add_argument("--write-baseline", dest="write_baseline", action="store_true",
                           help="record the reflex-only scores as the committed baseline (needs --no-llm)")
+    evaluate.add_argument("--seeds", type=int, default=1, metavar="N",
+                          help="run each scenario at N seeds and report median and range")
     evaluate.set_defaults(func=cmd_eval)
 
     compare = sub.add_parser(
@@ -385,7 +629,68 @@ def build_parser() -> argparse.ArgumentParser:
              "(default: the configured planner)",
     )
     compare.add_argument("--days", type=int, help="in-game days per turn")
+    compare.add_argument("--seeds", type=int, default=1, metavar="N",
+                         help="N seeds per model; rows report median and range")
     compare.set_defaults(func=cmd_compare)
+
+    experiment = sub.add_parser(
+        "experiment", help="one scenario three ways: model-only, AI-only, hybrid"
+    )
+    common(experiment)
+    experiment.add_argument("scenario")
+    experiment.add_argument("--seeds", type=int, default=5, metavar="N",
+                            help="seeds per arm (default 5)")
+    experiment.set_defaults(func=cmd_experiment)
+
+    measure_p = sub.add_parser(
+        "measure", help="brief size, wake rate and cache hits, peacetime vs wartime"
+    )
+    common(measure_p)
+    measure_p.add_argument("transcript", nargs="?", metavar="PATH",
+                           help="a transcript.jsonl to measure")
+    measure_p.add_argument("--campaign", metavar="NAME",
+                           help="play a long measurement campaign first, then measure it "
+                                "(peacetime_1936_1939, wartime_1939_1941)")
+    measure_p.set_defaults(func=cmd_measure)
+
+    handover = sub.add_parser("handover", help="hand the keyboard to a --handover session")
+    common(handover)
+    handover.add_argument("--release", action="store_true",
+                          help="take control back; queued actions stay queued")
+    handover.set_defaults(func=cmd_handover)
+
+    verify_bridge = sub.add_parser(
+        "verify-bridge", help="check the mod's tokens against the install and a game.log"
+    )
+    common(verify_bridge)
+    verify_bridge.add_argument("--log", dest="log_path_arg", metavar="PATH",
+                               help="game.log to check (default: HOI4_LOG_PATH or discovery)")
+    verify_bridge.set_defaults(func=cmd_verify_bridge)
+
+    save_inspect = sub.add_parser(
+        "save-inspect", help="list what a save contains, for mapping it to game state"
+    )
+    common(save_inspect)
+    save_inspect.add_argument("save", nargs="?", metavar="PATH",
+                              help="a .hoi4 text save (default: the newest in the save folder)")
+    save_inspect.set_defaults(func=cmd_save_inspect)
+
+    index = sub.add_parser("index", help="list the countries and focuses a playset defines")
+    common(index)
+    # --country (from the common flags) picks the country whose tree is shown.
+    index.add_argument("--all", action="store_true", help="with --country: list every focus")
+    index.set_defaults(func=cmd_index)
+
+    moddir = sub.add_parser(
+        "mod-directives", help="regenerate the mod's per-target directive blocks"
+    )
+    moddir.add_argument("--tags", metavar="GER,ENG,...",
+                        help="country tags to generate for (default: the vanilla majors and more)")
+    moddir.add_argument("--mod-dir", dest="mod_dir", default="mod/llm_bridge",
+                        help="the llm_bridge mod folder (default: mod/llm_bridge)")
+    moddir.add_argument("--check", action="store_true",
+                        help="exit 1 if the committed files differ from what would be generated")
+    moddir.set_defaults(func=cmd_mod_directives)
 
     calibrate = sub.add_parser("calibrate", help="record screen coordinates for the input driver")
     common(calibrate)

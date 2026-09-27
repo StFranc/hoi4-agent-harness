@@ -5,3 +5,11 @@ llm_bridge_category = {
 		always = yes
 	}
 }
+
+llm_bridge_target_category = {
+	icon = generic_political_actions
+	priority = 99
+	visible = {
+		always = yes
+	}
+}

@@ -1,0 +1,6 @@
+focus_tree = {
+	id = nfa_focus
+	country = { factor = 0 modifier = { add = 10 tag = NFA } }
+	default = yes
+	focus = { id = NFA_return_to_paris }
+}

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from ..config import HarnessConfig
 from .base import AdapterInfo, GameAdapter
 from .composite import CompositeAdapter
@@ -63,12 +65,20 @@ def build_adapter(config: HarnessConfig) -> GameAdapter:
                 window_title=config.window_title,
             )
         )
+        from .ui_scripts import DEFAULT_FILENAME as SCRIPTS_FILENAME
+        from .ui_scripts import load_scripts
+
+        scripts_path = config.ui_scripts_path or config.run_dir / SCRIPTS_FILENAME
         writer = InputDriverAdapter(
             InputConfig(
                 window_title=config.window_title,
                 enforce_focus=config.enforce_window_focus,
             ),
             dry_run=config.dry_run,
+            scripts=load_scripts(scripts_path) if Path(scripts_path).exists() else None,
         )
+        calibration = config.calibration_path or config.run_dir / "calibration.json"
+        if Path(calibration).exists():
+            writer.load_calibration(Path(calibration))
         return CompositeAdapter(reader, writer, clock_owner=config.clock_owner)
     raise ValueError(f"Unknown adapter {name!r}. Known: {', '.join(ADAPTERS)}")

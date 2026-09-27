@@ -1,0 +1,10 @@
+technologies = {
+	@infantry_cost = 1.5
+	infantry_weapons = {
+		research_cost = @infantry_cost
+		path = { leads_to_tech = infantry_weapons1 research_cost_coeff = 1 }
+	}
+	infantry_weapons1 = {
+		research_cost = 1
+	}
+}

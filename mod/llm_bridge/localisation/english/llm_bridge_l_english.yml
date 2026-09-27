@@ -1,4 +1,4 @@
-l_english:
+﻿l_english:
  llm_bridge_category:0 "LLM Bridge"
  llm_bridge_category_desc:0 "Directives raised by the agent harness. Safe to ignore if you are playing this yourself."
  llmb_posture_defensive:0 "Directive: hold the line"

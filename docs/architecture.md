@@ -10,16 +10,18 @@
              (wake rule,    (journal +     (calls, tokens,
               reflexes)      digest)        dollars)
                     |             |              |
-                +---v-------------v--------------v---+
-                |               HOI4Env              |
-                |  validate -> confirm gate -> apply |
-                +------------------+-----------------+
-                                   |
-                          +--------v---------+
-                          |   GameAdapter    |
-                          | mock | savegame  |
-                          | screen | input   |
-                          +------------------+
+                +---v-------------v--------------v---------------+
+                |                    HOI4Env                     |
+                | validate -> playset ids -> confirm gate ->     |
+                | (handover queue) -> apply -> track directives  |
+                +------------------------+-----------------------+
+                                         |
+                          +--------------v---------------+
+                          |          GameAdapter         |
+                          | mock | logtail | savegame    |
+                          | screen | input (UI scripts + |
+                          |          verify via reader)  |
+                          +------------------------------+
 ```
 
 ## Why these seams
@@ -31,15 +33,36 @@ than pick one, the contract lets an adapter declare what it can do
 (`supported_actions`, `AdapterInfo`) and what it could not see (`unknown_fields`),
 and `CompositeAdapter` pairs a reader with a writer.
 
+The input driver never reports a click as done on its own say-so: each action's
+recorded click path (`adapters/ui_scripts.py`) ends in a verification that
+re-reads the game through the composite's reader, and comes back verified,
+rejected, or unverified when the reader cannot see the proving field.
+
 **Env.** The rules that must not depend on the model behaving live here:
-schema validation, the confirmation gate on irreversible actions, the per-turn
-action cap, and exception containment (an adapter fault becomes a failed action,
-not a dead run).
+schema validation, identifier checks against the playset (`identifiers.py`, when
+one is configured), the confirmation gate on irreversible actions, the per-turn
+action cap, the co-op handover queue (`handover.py`), and exception containment
+(an adapter fault becomes a failed action, not a dead run). It also keeps the
+directive tracker, which diffs what each standing directive has visibly changed.
 
 **Policy.** The wake rule and the reflexes. See
-[cost-and-timing.md](cost-and-timing.md) — this file is the cost model.
+[cost-and-timing.md](cost-and-timing.md) — this file is the cost model. Wartime
+rules fire on the onset of their condition, so the policy is handed last turn's
+snapshot.
 
-**Observation.** State to prompt text, full or delta.
+**Observation.** State to prompt text, full or delta. Fronts are summarised and
+capped (`observation/fronts.py`), so a war's brief does not grow with its number
+of fronts; every brief's size is counted into the transcript
+(`observation/tokens.py`).
+
+**Evaluation.** Scenarios scored against a reflex baseline (`eval/`), across
+seeds (`variance.py`), across models (`comparison.py`), three ways for the hybrid
+question (`experiment.py`), and long measurement campaigns read back by
+`measure.py`. See [evaluation.md](evaluation.md).
+
+**Mod tooling.** `modgen.py` generates the bridge's per-target directive blocks;
+`bridge_check.py` checks the mod's tokens against an install and its telemetry
+against a log.
 
 **LLM layer.** A neutral message/tool dialect (`Msg`, `ToolCall`, `ToolResult`,
 `ToolSpec`) that each provider maps to its own wire format. Nothing above this
@@ -49,7 +72,7 @@ on four models" a config change.
 ## One turn, in detail
 
 1. `env.read_state()` — cheap, no model involved.
-2. `policy.should_wake(state, days_since_planner)` → wake or not, plus a reason.
+2. `policy.should_wake(state, days_since_planner, previous)` → wake or not, plus a reason.
 3. Not woken: run `policy.reflex_actions(state)`, log, advance the clock.
 4. Woken but out of budget: same as (3), plus a `budget_downgrade` record.
 5. Woken: build an `Observation` (full or delta), assemble the prompt (frozen
@@ -58,7 +81,8 @@ on four models" a config change.
    also lands in memory. `advance_time` ends the turn.
 7. Up to `max_tool_rounds_per_turn` rounds, so the model can react to a rejection
    without being able to loop forever.
-8. Record the turn in memory, advance the clock, repeat.
+8. In handover mode, run the queue if the player has granted a window.
+9. Record the turn in memory, advance the clock, repeat.
 
 Everything above is written to a JSONL transcript, one record per event, which is
 what the eval runner and any later analysis read.
@@ -101,4 +125,9 @@ the running game, which is the only case where resume is fully meaningful.
 - **A new adapter**: subclass `GameAdapter`, declare `supported_actions`, and be
   honest in `unknown_fields`.
 - **A new scenario**: a `Scenario` with objectives that are predicates over
-  `GameState`. Scoring reports outcome and cost side by side on purpose.
+  `GameState`. Scoring reports outcome and cost side by side on purpose. A
+  scenario declares the playset it assumes; a war that moves on its own is a
+  `ScenarioStart.timeline` of `WarChange` steps.
+- **A new UI-driven action**: add a verifier to `adapters/ui_scripts.py`
+  (what must be true afterwards, and which fields prove it); the click path is
+  then recorded per install, never written in code.

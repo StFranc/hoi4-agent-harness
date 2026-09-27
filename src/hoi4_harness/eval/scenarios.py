@@ -93,6 +93,10 @@ class Scenario:
     #: whose answer lives in the hybrid vocabulary has to say so, or the mode
     #: switch quietly removes the tools the answer needs.
     operational_control: str = "llm"
+    #: The playset this scenario's start, dates and objectives assume. The mock
+    #: stands in for the base game; a run configured against another playset is
+    #: refused rather than scored against objectives written for a different map.
+    playset: str = "vanilla"
 
 
 ECONOMY_RAMP = Scenario(

@@ -60,7 +60,7 @@ The vocabulary and the mode switch exist; the plumbing behind them is example
 code. This milestone makes a directive actually change AI behaviour, and then
 asks the question the whole idea rests on.
 
-- Dynamic directive targets (read the tag from a variable, not a hardcoded id)
+- Per-target directives (generated blocks, one per directive and tag), verified in-game
 - Army delegation through the real UI
 - Theater-scoped posture
 - **The experiment**: same scenario, three ways — model-only, AI-only, hybrid

@@ -135,6 +135,24 @@ def wire_messages(system: str, messages: list[Msg]) -> list[dict]:
     return wire
 
 
+
+def usage_from_wire(raw) -> Usage:
+    """OpenAI-style usage -> Usage.
+
+    ``prompt_tokens`` already includes cached tokens and ``completion_tokens``
+    already includes reasoning, which is exactly Usage's meaning. Caching is
+    implicit, so nothing is ever billed as a cache write. Compatible endpoints
+    (Ollama, vLLM) often omit the details block; that reads as zero cached.
+    """
+    if raw is None:
+        return Usage()
+    details = getattr(raw, "prompt_tokens_details", None)
+    return Usage(
+        input_tokens=getattr(raw, "prompt_tokens", 0) or 0,
+        output_tokens=getattr(raw, "completion_tokens", 0) or 0,
+        cached_input_tokens=getattr(details, "cached_tokens", 0) or 0,
+    )
+
 class OpenAIClient(LLMClient):
     name = "openai"
 
@@ -214,14 +232,7 @@ class OpenAIClient(LLMClient):
                 arguments = {"_unparsed": call.function.arguments}
             calls.append(ToolCall(id=call.id, name=call.function.name, arguments=arguments))
 
-        usage = Usage(
-            input_tokens=getattr(response.usage, "prompt_tokens", 0) or 0,
-            output_tokens=getattr(response.usage, "completion_tokens", 0) or 0,
-            cached_input_tokens=getattr(
-                getattr(response.usage, "prompt_tokens_details", None), "cached_tokens", 0
-            )
-            or 0,
-        )
+        usage = usage_from_wire(response.usage)
         return LLMResponse(
             text=choice.message.content or "",
             tool_calls=calls,

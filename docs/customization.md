@@ -22,7 +22,6 @@ you at run time.
 | Endpoint | `--base-url`, `HOI4_LLM_BASE_URL` | Ollama, vLLM, LM Studio, OpenRouter, ... |
 | Reasoning effort | `--effort`, `HOI4_LLM_EFFORT` | where supported |
 | Max tokens, temperature | `HOI4_LLM_MAX_TOKENS`, `HOI4_LLM_TEMPERATURE` | |
-| Triage model | `HOI4_TRIAGE_*` | the cheap second role |
 
 ### What the model is told
 
@@ -52,11 +51,13 @@ you at run time.
 |---|---|
 | `days_per_turn` | in-game days between scheduled reviews |
 | `wake_on_no_focus`, `wake_on_free_research_slot` | opportunity wakes; turn off for a strictly scheduled run |
+| `wake_on_encirclement`, `wake_on_supply_collapse`, `wake_on_capital_threat`, `wake_on_ally_capitulation`, `wake_on_front_quiet` | wartime wakes, each on the onset of its condition; only consulted while at war |
 | `planner_enabled` | `--no-llm` never wakes the model at all: reflexes only, zero model calls. `eval --no-llm --write-baseline` records those scores as the baseline every score card is reported against |
 | `reflex_enabled` | `--no-reflex` makes the model decide everything, including the boring parts |
 | `full_brief_every` | turns between full briefs; the rest are deltas |
 | `budget.max_usd`, `max_llm_calls`, `max_input_tokens`, `max_output_tokens` | hard ceilings; on exhaustion the run drops to reflex rather than stopping |
-| `budget.usd_per_m_input` / `usd_per_m_output` | your price sheet, so the run reports real money |
+| `budget.usd_per_m_input` / `usd_per_m_output` | your price sheet, so the run reports real money; `doctor` warns when a real provider runs unpriced |
+| `budget.usd_per_m_cached_input` / `usd_per_m_cache_write` | cache reads and writes at their own rates; unset, they bill at the input rate — see [cost-and-timing.md](cost-and-timing.md#what-is-counted-where) |
 
 ### The game
 
@@ -64,10 +65,12 @@ you at run time.
 |---|---|
 | `adapter` | `mock`, `logtail`, `savegame`, `screen`, and `X+input` pairs |
 | `operational_control` | `llm` (model commands directly) or `ai` (native AI runs operations — see [hybrid-control.md](hybrid-control.md)) |
+| `handover`, `--handover`, `HOI4_HANDOVER` | co-op turn-taking: actions queue until the player runs `hoi4-harness handover` — see [co-op.md](co-op.md) |
 | `clock_owner`, `--player-clock` | `harness` (pauses and drives the clock) or `player` (never touches it — required when a person is playing the same campaign) |
 | `country`, `start_date`, `seed` | mock adapter start |
 | `log_path` / `HOI4_LOG_PATH` | `game.log`, for the logtail adapter |
 | `save_dir`, `window_title` | real-game adapters |
+| `game_dir` / `HOI4_GAME_DIR` / `--game-dir`, `mod_dirs` / `HOI4_MOD_DIRS` / `--mod` | the playset: ids are checked against what it defines — see [playsets.md](playsets.md) |
 | `enforce_window_focus`, `--no-window-guard` | refuse to send input unless the game is focused (default on) |
 
 ## Profiles

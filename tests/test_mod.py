@@ -56,36 +56,81 @@ def test_no_tabs_mixed_with_spaces_at_line_start(path):
     assert starts <= {"\t"}, f"{path.name}: indent with tabs, found {starts}"
 
 
-def test_localisation_is_well_formed():
-    loc = MOD / "localisation" / "english" / "llm_bridge_l_english.yml"
-    lines = loc.read_text(encoding="utf-8-sig").splitlines()
+LOCALISATION = sorted((MOD / "localisation" / "english").glob("*.yml"))
+DECISION_FILES = sorted((MOD / "common" / "decisions").glob("*.txt"))
+
+
+def _all_localisation() -> str:
+    return "\n".join(path.read_text(encoding="utf-8-sig") for path in LOCALISATION)
+
+
+@pytest.mark.parametrize("path", LOCALISATION, ids=lambda p: p.name)
+def test_localisation_is_well_formed(path):
+    raw = path.read_bytes()
+    # HOI4 only loads localisation saved as UTF-8 *with* a byte-order mark;
+    # without one the keys print raw in-game, which no other check would see.
+    assert raw.startswith(b"\xef\xbb\xbf"), f"{path.name}: needs a UTF-8 BOM"
+    lines = raw.decode("utf-8-sig").splitlines()
     assert lines[0].strip() == "l_english:"
+    assert path.name.endswith("_l_english.yml")
     for line in lines[1:]:
         if line.strip():
             assert re.fullmatch(r' \w+:\d+ ".*"', line), f"bad localisation line: {line!r}"
 
 
-def test_every_decision_has_localisation():
-    decisions = (MOD / "common" / "decisions" / "llm_bridge_decisions.txt").read_text(
-        encoding="utf-8"
-    )
-    loc = (MOD / "localisation" / "english" / "llm_bridge_l_english.yml").read_text(
-        encoding="utf-8-sig"
-    )
-    for name in re.findall(r"^\t(llmb_\w+) = \{", decisions, flags=re.M):
+@pytest.mark.parametrize("path", DECISION_FILES, ids=lambda p: p.name)
+def test_every_decision_has_localisation(path):
+    decisions = path.read_text(encoding="utf-8")
+    loc = _all_localisation()
+    names = re.findall(r"^\t(llmb_\w+) = \{", decisions, flags=re.M)
+    assert names, f"{path.name}: no decisions found"
+    for name in names:
         assert f"{name}:0" in loc, f"decision {name} has no localisation"
         assert f"{name}_desc:0" in loc, f"decision {name} has no description"
 
 
-def test_every_effect_the_decisions_call_exists():
-    decisions = (MOD / "common" / "decisions" / "llm_bridge_decisions.txt").read_text(
-        encoding="utf-8"
-    )
+@pytest.mark.parametrize("path", DECISION_FILES, ids=lambda p: p.name)
+def test_every_decision_category_is_declared(path):
+    categories = (MOD / "common" / "decisions" / "categories").glob("*.txt")
+    declared = set()
+    for category_file in categories:
+        declared |= set(re.findall(r"^(\w+) = \{", category_file.read_text(encoding="utf-8"),
+                                   flags=re.M))
+    used = re.findall(r"^(\w+) = \{", path.read_text(encoding="utf-8"), flags=re.M)
+    for name in used:
+        assert name in declared, f"{path.name}: category {name} is not declared"
+        assert f"{name}:0" in _all_localisation(), f"category {name} has no localisation"
+
+
+def _defined_effects() -> set[str]:
     defined = set()
     for path in (MOD / "common" / "scripted_effects").glob("*.txt"):
         defined |= set(re.findall(r"^(\w+) = \{", path.read_text(encoding="utf-8"), flags=re.M))
-    for called in re.findall(r"^\t{3}(\w+) = yes", decisions, flags=re.M):
+    return defined
+
+
+@pytest.mark.parametrize("path", DECISION_FILES, ids=lambda p: p.name)
+def test_every_effect_the_decisions_call_exists(path):
+    defined = _defined_effects()
+    for called in re.findall(r"^\t{3}(\w+) = yes", path.read_text(encoding="utf-8"), flags=re.M):
         assert called in defined, f"decision calls undefined effect {called}"
+
+
+def test_every_effect_an_effect_calls_exists():
+    defined = _defined_effects()
+    for path in (MOD / "common" / "scripted_effects").glob("*.txt"):
+        body = strip_comments(path.read_text(encoding="utf-8"))
+        for called in re.findall(r"\b(llm_bridge_\w+) = yes", body):
+            assert called in defined, f"{path.name} calls undefined effect {called}"
+
+
+def test_the_generated_directive_files_are_current():
+    """The per-target files come from modgen.py; hand edits or a stale
+    regeneration would let the harness and the mod disagree about targets."""
+    from hoi4_harness import modgen
+
+    stale = modgen.drift(MOD)
+    assert not stale, f"regenerate with `hoi4-harness mod-directives`: {stale}"
 
 
 def test_mod_and_harness_agree_on_the_telemetry_schema():

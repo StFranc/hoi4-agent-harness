@@ -30,6 +30,12 @@ class CompositeAdapter(GameAdapter):
         self.clock_owner = clock_owner
         self.poll_seconds = poll_seconds
         self.supported_actions = writer.supported_actions
+        # A writer that verifies what it did needs to see the game; the reader
+        # is the only thing here that can.
+        # It peeks where the reader can: verification polls several times, and
+        # a read that drains events would hide them from the loop's wake rule.
+        if hasattr(writer, "attach_reader"):
+            writer.attach_reader(getattr(reader, "peek_state", reader.read_state))
 
     @property
     def owns_clock(self) -> bool:

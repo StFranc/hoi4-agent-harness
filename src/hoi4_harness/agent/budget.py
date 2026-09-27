@@ -35,10 +35,26 @@ class BudgetGuard:
     def record(self, usage: Usage) -> None:
         self.spend.calls += 1
         self.spend.usage = self.spend.usage + usage
-        self.spend._usd += (
-            usage.input_tokens / 1_000_000 * self.config.usd_per_m_input
-            + usage.output_tokens / 1_000_000 * self.config.usd_per_m_output
-        )
+        self.spend._usd += self.price(usage)
+
+    def price(self, usage: Usage) -> float:
+        """Dollars for one call: uncached input, cache reads, cache writes and
+        output each at their own rate. A rate left unset falls back to the input
+        rate, so an unconfigured cache is never priced as free."""
+        c = self.config
+        cached = c.usd_per_m_input if c.usd_per_m_cached_input is None else c.usd_per_m_cached_input
+        write = c.usd_per_m_input if c.usd_per_m_cache_write is None else c.usd_per_m_cache_write
+        return (
+            usage.uncached_input_tokens * c.usd_per_m_input
+            + usage.cached_input_tokens * cached
+            + usage.cache_write_input_tokens * write
+            + usage.output_tokens * c.usd_per_m_output
+        ) / 1_000_000
+
+    @property
+    def priced(self) -> bool:
+        """False when no rate was ever set, so '$0.00' means 'unpriced', not 'free'."""
+        return bool(self.config.usd_per_m_input or self.config.usd_per_m_output)
 
     def allows_call(self) -> bool:
         return self.why_blocked() is None
@@ -61,7 +77,9 @@ class BudgetGuard:
             "llm_calls": s.calls,
             "input_tokens": s.usage.input_tokens,
             "cached_input_tokens": s.usage.cached_input_tokens,
+            "cache_write_input_tokens": s.usage.cache_write_input_tokens,
             "output_tokens": s.usage.output_tokens,
             "usd": round(s.usd, 4),
+            "priced": self.priced,
             "blocked": self.why_blocked(),
         }

@@ -121,3 +121,101 @@ def test_the_adapter_refuses_to_act(tmp_path: Path):
     (tmp_path / "a.hoi4").write_text(SAVE, encoding="utf-8")
     result = SaveGameAdapter(tmp_path).apply(ActionCall("note", {"text": "x"}))
     assert not result.ok and result.error_kind == "unsupported"
+
+
+# --- reading only what is needed (#6) ------------------------------------------
+
+from hoi4_harness.adapters.savegame import (  # noqa: E402
+    country_block,
+    extract,
+    inspect,
+    save_date,
+    top_level_spans,
+)
+
+LAID_OUT = """date="1936.1.1.12"
+player="SWE"
+provinces={
+\t1={ owner=SWE }
+\t2={ owner=FIN }
+}
+countries={
+\tFIN={
+\t\tpolitical_power=10
+\t}
+\tSWE={
+\t\tpolitical_power=25.500
+\t\tresearch={ slot=3 }
+\t}
+\tGER={
+\t\tpolitical_power=99
+\t}
+}
+"""
+
+
+def test_the_save_date_keeps_month_and_day():
+    """It used to keep only the year: '1936.1.1.12'.split('.')[0]."""
+    assert save_date('"1936.1.1.12"') == "1936-01-01"
+    assert save_date("1939.9.1") == "1939-09-01"
+
+
+def test_extract_matches_a_full_parse_for_the_keys_asked_for():
+    full = parse_clausewitz(LAID_OUT)
+    assert extract(LAID_OUT, {"date", "player", "countries"}) == {
+        k: full[k] for k in ("date", "player", "countries")
+    }
+
+
+def test_extract_parses_only_what_it_was_asked_for(monkeypatch):
+    import hoi4_harness.adapters.savegame as savegame
+
+    seen = []
+    real = savegame.parse_clausewitz
+
+    def spy(text):
+        seen.append(text)
+        return real(text)
+
+    monkeypatch.setattr(savegame, "parse_clausewitz", spy)
+    extract(LAID_OUT, {"player"})
+    assert all("provinces" not in chunk and "countries" not in chunk for chunk in seen)
+
+
+def test_a_save_on_one_line_falls_back_to_a_full_parse():
+    one_line = "date=1936.1.1 player=SWE countries={ SWE={ political_power=5 } }"
+    assert list(top_level_spans(one_line)) == ["date"]      # the layout hides the rest
+    assert extract(one_line, {"player"}) == {"player": "SWE"}
+
+
+def test_the_player_country_block_is_cut_out_alone():
+    assert country_block(LAID_OUT, "SWE") == {"political_power": "25.500", "research": {"slot": "3"}}
+    assert country_block(LAID_OUT, "ITA") is None
+    assert country_block("date=1936.1.1\n", "SWE") is None
+
+
+def test_the_adapter_reads_a_laid_out_save(tmp_path: Path):
+    (tmp_path / "a.hoi4").write_text(LAID_OUT, encoding="utf-8")
+    state = SaveGameAdapter(tmp_path).read_state()
+    assert state.date == "1936-01-01" and state.country == "SWE"
+    assert state.raw["country"]["political_power"] == "25.500"
+    assert "political_power" in state.unknown_fields      # mapped only once verified
+
+
+def test_inspect_shows_what_there_is_to_map(tmp_path: Path):
+    path = tmp_path / "a.hoi4"
+    path.write_text(LAID_OUT, encoding="utf-8")
+    text = inspect(path)
+    assert "-> 1936-01-01" in text and "player   SWE" in text
+    assert "countries" in text and "provinces" in text
+    assert "SWE's block: 2 keys" in text and "political_power" in text and "{ slot }" in text
+
+
+def test_save_inspect_command(tmp_path: Path, capsys):
+    from hoi4_harness.cli import main
+
+    path = tmp_path / "a.hoi4"
+    path.write_text(LAID_OUT, encoding="utf-8")
+    assert main(["save-inspect", str(path)]) == 0
+    assert "SWE's block" in capsys.readouterr().out
+    assert main(["save-inspect", str(tmp_path / "missing.hoi4")]) == 1

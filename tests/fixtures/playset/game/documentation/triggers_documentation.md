@@ -1,0 +1,2 @@
+Fixture documentation: political_power stability war_support num_of_civilian_factories
+num_of_military_factories num_of_naval_factories manpower

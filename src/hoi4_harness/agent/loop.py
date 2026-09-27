@@ -28,6 +28,7 @@ from ..actions import catalog, registry
 from ..config import HarnessConfig
 from ..env import HOI4Env
 from ..observation.builder import snapshot as deepcopy_state
+from ..observation.tokens import count_tokens
 from ..types import ActionCall, ActionResult, GameState
 from .advisor import Advisor
 from .budget import BudgetGuard
@@ -110,6 +111,12 @@ class AgentLoop:
             wake_on_free_research_slot=self.config.wake_on_free_research_slot,
             reflex_enabled=self.config.reflex_enabled,
             planner_enabled=self.config.planner_enabled,
+            wake_on_encirclement=self.config.wake_on_encirclement,
+            wake_on_supply_collapse=self.config.wake_on_supply_collapse,
+            wake_on_capital_threat=self.config.wake_on_capital_threat,
+            wake_on_ally_capitulation=self.config.wake_on_ally_capitulation,
+            wake_on_front_quiet=self.config.wake_on_front_quiet,
+            reflex_delegate=self.config.reflex_delegate,
         )
         self.system = build_system(
             guidance=self.config.guidance,
@@ -117,6 +124,7 @@ class AgentLoop:
             system_prompt_path=self.config.system_prompt_path,
             operational_control=self.config.operational_control,
             advisor=self.config.advisor,
+            playset=env.index.playset.name if env.index is not None else None,
         )
         self.budget = BudgetGuard(self.config.budget)
         self.transcript = Transcript(transcript_path, append=resume)
@@ -133,6 +141,9 @@ class AgentLoop:
 
         if resume and transcript_path:
             self._resume_from(transcript_path)
+        # Which world produced this transcript: a run on a total conversion is
+        # not comparable to one on the base game, and nothing else records it.
+        self.transcript.write("playset", **env.playset)
 
     def _resume_from(self, transcript_path: Path) -> None:
         """Carry forward what the interrupted run knew.
@@ -178,8 +189,10 @@ class AgentLoop:
         for _ in range(turns):
             state = self.env.read_state()
             turn_date = state.date
+            at_war = bool(state.wars)
             self.history.append(deepcopy_state(state))
-            decision = self.policy.should_wake(state, days_since_planner)
+            previous = self.history[-2] if len(self.history) >= 2 else None
+            decision = self.policy.should_wake(state, days_since_planner, previous)
             blocked = self.budget.why_blocked()
             downgraded = bool(decision.wake and blocked)
 
@@ -194,6 +207,11 @@ class AgentLoop:
                 actions, turn_tokens = self._reflex_turn(decision.reason)
                 days_since_planner += self.config.days_per_turn
 
+            handover = self.env.run_handover()
+            if handover is not None:
+                self.transcript.write("handover", **handover.to_dict())
+                if self.progress:
+                    self.progress(handover.summary())
             state = self.env.advance()
             self.report.turns += 1
             self.report.end_date = state.date
@@ -205,7 +223,10 @@ class AgentLoop:
                 else:
                     marker = "reflex"
                 self.progress(self._progress_line(turn_date, marker, actions, turn_tokens))
-            self.transcript.write("turn_end", date=state.date, turn=self.report.turns)
+            self.transcript.write(
+                "turn_end", date=state.date, turn=self.report.turns,
+                from_date=turn_date, at_war=at_war, woke=decision.wake,
+            )
             self._checkpoint()
 
             if self.report.stopped_reason:
@@ -277,6 +298,16 @@ class AgentLoop:
                 ),
             )
         ]
+        brief_tokens, token_method = count_tokens(observation.brief)
+        # What the first request of this wake sends, split the way it bills: the
+        # prefix (system + tools) is byte-identical across wakes and cacheable,
+        # the turn message is not. Counted from the harness's own text, so it
+        # holds for any provider -- including the scripted one, which reports no
+        # real usage.
+        prefix_tokens, _ = count_tokens(
+            self.system + json.dumps([t.__dict__ for t in tools], sort_keys=True)
+        )
+        turn_tokens_sent, _ = count_tokens(messages[0].text)
         self.transcript.write(
             "observe",
             date=turn_date,
@@ -284,6 +315,14 @@ class AgentLoop:
             is_delta=observation.is_delta,
             brief=observation.brief,
             wake_reason=reason,
+            # Measured, not estimated afterwards (#14); the method travels with
+            # the number because chars/4 and a real tokenizer disagree.
+            brief_chars=len(observation.brief),
+            brief_tokens=brief_tokens,
+            token_method=token_method,
+            prompt_prefix_tokens=prefix_tokens,
+            prompt_turn_tokens=turn_tokens_sent,
+            at_war=bool(observation.state.wars),
         )
 
         taken: list[str] = []

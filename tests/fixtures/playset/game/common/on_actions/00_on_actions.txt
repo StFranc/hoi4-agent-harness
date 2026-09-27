@@ -1,0 +1,9 @@
+# Fixture on_actions. on_startup and friends are the names the bridge hooks;
+# on_fixture_focus_done is invented, to stand in for a completion hook.
+on_actions = {
+	on_startup = { effect = { } }
+	on_daily = { effect = { } }
+	on_declare_war = { effect = { } }
+	on_capitulation = { effect = { } }
+	on_fixture_focus_done = { effect = { } }
+}

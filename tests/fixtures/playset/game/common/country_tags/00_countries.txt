@@ -1,0 +1,5 @@
+# Vanilla-shaped tag list
+SWE = "countries/Sweden.txt"
+GER = "countries/Germany.txt"
+FIN = "countries/Finland.txt"
+POL = "countries/Poland.txt"

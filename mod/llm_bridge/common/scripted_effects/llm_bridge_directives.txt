@@ -19,8 +19,7 @@ llm_bridge_set_posture_offensive = {
 }
 
 llm_bridge_clear_directives = {
-	clr_country_flag = llmb_directive_invade
-	clr_country_flag = llmb_directive_protect
+	llm_bridge_clear_target_directives = yes
 	clr_country_flag = llmb_posture_defensive
 	clr_country_flag = llmb_posture_offensive
 	set_variable = { llmb_event_kind = 12 }

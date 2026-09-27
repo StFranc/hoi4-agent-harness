@@ -80,6 +80,28 @@ localisation for every decision, no decision calling an undefined effect, schema
 versions in sync — but no CI can tell you whether a token is real. Only the game
 knows that.
 
+`hoi4-harness verify-bridge` does most of that checking for you, from the
+install's files and one log:
+
+```bash
+hoi4-harness verify-bridge --game-dir "C:/.../Hearts of Iron IV" --log ".../logs/game.log"
+```
+
+- **Against the install**: every `on_action` the mod hooks must be defined in
+  the game's `common/on_actions` (a missing one never fires); every
+  `ai_strategy` type the mod raises is compared with the types the game's own
+  `common/ai_strategy` files use (one the game never uses is flagged suspect —
+  possibly valid, but the first place to look); every trigger the telemetry
+  reads is looked up in the install's `documentation/`. It also lists the
+  install's on_actions whose names look like focus, research or construction
+  completion — the candidates for the missing completion events (#2).
+- **Against a log**: which telemetry fields expanded to real values and which
+  printed a literal token, whether the engine's date prefix is present, and
+  which events arrived. A field that expanded on any line counts as real.
+
+It exits non-zero when a hooked on_action is missing or a field never expanded,
+so it can gate a run. Pasting its output into #1 is the acceptance evidence.
+
 ## Boundaries
 
 `log` is a stock script effect and `game.log` is a file the game already writes.

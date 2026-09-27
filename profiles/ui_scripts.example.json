@@ -1,0 +1,67 @@
+{
+  "_comment": [
+    "A TEMPLATE, not a recording. Each click path below is a guess at the HOI4 UI",
+    "and must be checked, step by step, against your own game before use: copy it",
+    "to <run-dir>/ui_scripts.json, fix every step that does not match what you see,",
+    "then run `hoi4-harness calibrate` to record the click targets it names.",
+    "The harness verifies every action by re-reading the game afterwards, so a",
+    "wrong step fails loudly instead of being reported as done. See docs/adapters.md."
+  ],
+  "schema": 1,
+  "scripts": {
+    "set_national_focus": [
+      {"press": "f"},
+      {"click": "focus.search"},
+      {"type": "{focus_id}"},
+      {"wait": 0.4},
+      {"click": "focus.first_result"},
+      {"press": "escape"}
+    ],
+    "start_research": [
+      {"press": "n"},
+      {"click": "research.first_free_slot"},
+      {"click": "research.tech.{technology}"},
+      {"press": "escape"}
+    ],
+    "queue_construction": [
+      {"press": "c"},
+      {"click": "construction.building.{building}"},
+      {"click": "construction.state.{state}"},
+      {"press": "escape"}
+    ],
+    "set_production": [
+      {"press": "b"},
+      {"click": "production.line.{equipment}"},
+      {"click": "production.factories_field"},
+      {"type": "{factories}"},
+      {"press": "enter"},
+      {"press": "escape"}
+    ],
+    "set_ai_directive": [
+      {"click": "decisions.tab"},
+      {"click": "decisions.target.{target}"},
+      {"click": "decisions.directive.{directive}"},
+      {"press": "escape"}
+    ],
+    "set_ai_posture": [
+      {"click": "decisions.tab"},
+      {"click": "decisions.posture.{posture}"},
+      {"press": "escape"}
+    ],
+    "clear_ai_directives": [
+      {"click": "decisions.tab"},
+      {"click": "decisions.clear_directives"},
+      {"press": "escape"}
+    ],
+    "delegate_army_to_ai": [
+      {"click": "army.{army}"},
+      {"click": "army.ai_control_toggle"},
+      {"press": "escape"}
+    ],
+    "hire_advisor": [
+      {"click": "politics.tab"},
+      {"click": "politics.advisor.{advisor_id}"},
+      {"press": "escape"}
+    ]
+  }
+}

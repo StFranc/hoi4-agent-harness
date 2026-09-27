@@ -55,6 +55,24 @@ def wire_contents(messages: list[Msg]) -> list[dict]:
     return contents
 
 
+
+def usage_from_wire(meta) -> Usage:
+    """Gemini usage metadata -> Usage.
+
+    ``prompt_token_count`` includes cached content. ``candidates_token_count``
+    does *not* include thinking: that arrives as ``thoughts_token_count`` and is
+    billed as output, so a thinking model's output was undercounted by exactly
+    its reasoning until this summed the two.
+    """
+    if meta is None:
+        return Usage()
+    return Usage(
+        input_tokens=getattr(meta, "prompt_token_count", 0) or 0,
+        output_tokens=(getattr(meta, "candidates_token_count", 0) or 0)
+        + (getattr(meta, "thoughts_token_count", 0) or 0),
+        cached_input_tokens=getattr(meta, "cached_content_token_count", 0) or 0,
+    )
+
 class GoogleClient(LLMClient):
     name = "google"
 
@@ -101,12 +119,7 @@ class GoogleClient(LLMClient):
             ToolCall(id=f"{fc.name}-{i}", name=fc.name, arguments=dict(fc.args or {}))
             for i, fc in enumerate(getattr(response, "function_calls", None) or [])
         ]
-        meta = getattr(response, "usage_metadata", None)
-        usage = Usage(
-            input_tokens=getattr(meta, "prompt_token_count", 0) or 0,
-            output_tokens=getattr(meta, "candidates_token_count", 0) or 0,
-            cached_input_tokens=getattr(meta, "cached_content_token_count", 0) or 0,
-        )
+        usage = usage_from_wire(getattr(response, "usage_metadata", None))
         return LLMResponse(
             text=getattr(response, "text", "") or "",
             tool_calls=calls,

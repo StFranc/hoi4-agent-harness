@@ -29,6 +29,7 @@ from .baselines import for_scenario
 from .metrics import ScoreCard
 from .runner import run_scenario
 from .scenarios import SCENARIOS, Scenario
+from .variance import QUOTABLE_SEEDS, AggregateCard, run_seeds
 
 
 @dataclass
@@ -37,6 +38,8 @@ class ModelResult:
 
     model: str
     card: ScoreCard | None = None
+    #: Set on a multi-seed comparison; ``card`` is then its median-scoring run.
+    aggregate: AggregateCard | None = None
     #: Set when the model could not run at all; the row renders as dashes.
     error: str | None = None
 
@@ -50,9 +53,13 @@ class Comparison:
     results: list[ModelResult] = field(default_factory=list)
     baseline: float | None = None
     baseline_note: str | None = None
+    seeds: int = 1
 
     def render(self) -> str:
         header = ["model", "score", "delta", "calls", "tokens in", "tokens out", "usd"]
+        if self.seeds > 1:
+            # A median with no spread is a claim without an error bar.
+            header = ["model", "median", "range", "delta", "calls", "tokens in", "tokens out", "usd"]
         keyed = [(result, self._row(result)) for result in self.results]
         baseline_cells = self._baseline_row() if self.baseline is not None else None
         body = ([baseline_cells] if baseline_cells is not None else []) + [
@@ -78,16 +85,23 @@ class Comparison:
                 lines.append(f"  stopped early: {result.card.stopped_reason}")
         if self.baseline_note:
             lines.append(f"  {self.baseline_note}")
+        if 1 < self.seeds < QUOTABLE_SEEDS:
+            lines.append(f"  fewer than {QUOTABLE_SEEDS} seeds per model: an anecdote, not a result")
         return "\n".join(lines)
 
     def _row(self, result: ModelResult) -> list[str]:
         card = result.card
+        wide = self.seeds > 1
         if card is None:
-            return [result.model, "--", "--", "--", "--", "--", "--"]
-        delta = "--" if card.baseline is None else f"{card.score - card.baseline:+.2f}"
+            return [result.model] + ["--"] * (7 if wide else 6)
+        agg = result.aggregate
+        score = agg.median if agg else card.score
+        delta = "--" if card.baseline is None else f"{score - card.baseline:+.2f}"
+        spread = [f"{agg.low:.2f}-{agg.high:.2f}"] if wide and agg else (["--"] if wide else [])
         return [
             result.model,
-            f"{card.score:.2f}",
+            f"{score:.2f}",
+            *spread,
             delta,
             str(card.planner_calls),
             f"{card.tokens_in:,}",
@@ -98,7 +112,8 @@ class Comparison:
     def _baseline_row(self) -> list[str]:
         # The reflex layer plays without a model, so zero spend is true by
         # construction, not an estimate.
-        return ["baseline (reflex)", f"{self.baseline:.2f}", "--", "0", "0", "0", "$0.00"]
+        spread = ["--"] if self.seeds > 1 else []
+        return ["baseline (reflex)", f"{self.baseline:.2f}", *spread, "--", "0", "0", "0", "$0.00"]
 
     def _fixed_line(self) -> str:
         # The levers that move a score besides model choice. Any of them differing
@@ -106,10 +121,17 @@ class Comparison:
         # rather than assumed.
         config = self.config
         return (
-            f"fixed for every run: scenario={self.scenario.key} seed={self.scenario.seed} "
+            f"fixed for every run: scenario={self.scenario.key} {self._seed_text()} "
             f"guidance={config.system_prompt_path or config.guidance} "
             f"control={config.operational_control} days_per_turn={config.days_per_turn}"
         )
+
+
+    def _seed_text(self) -> str:
+        if self.seeds > 1:
+            last = self.scenario.seed + self.seeds - 1
+            return f"seeds={self.scenario.seed}..{last} (n={self.seeds})"
+        return f"seed={self.scenario.seed}"
 
 
 def _row(cells: list[str], widths: list[int]) -> str:
@@ -123,6 +145,7 @@ def compare(
     scenario: str | Scenario,
     models: list[str] | None = None,
     config: HarnessConfig | None = None,
+    seeds: int = 1,
 ) -> Comparison:
     """Run one scenario once per model spec and return the comparison to render.
 
@@ -143,9 +166,10 @@ def compare(
     return Comparison(
         scenario=scenario,
         config=config,
-        results=[_run_one(scenario, spec, config) for spec in models],
+        results=[_run_one(scenario, spec, config, seeds) for spec in models],
         baseline=baseline,
         baseline_note=baseline_note,
+        seeds=max(1, seeds),
     )
 
 
@@ -162,12 +186,18 @@ def planner_for(spec: str, base: LLMConfig) -> LLMConfig:
     return replace(base, provider=provider, model=model)
 
 
-def _run_one(scenario: Scenario, spec: str, config: HarnessConfig) -> ModelResult:
+def _run_one(scenario: Scenario, spec: str, config: HarnessConfig, seeds: int = 1) -> ModelResult:
     planner = planner_for(spec, config.planner)
+    run_config = replace(config, planner=planner)
     try:
-        card = run_scenario(
-            scenario, replace(config, planner=planner), transcript_dir=_transcripts(config, planner)
-        )
+        if seeds > 1:
+            aggregate = run_seeds(scenario, run_config, seeds, _transcripts(config, planner))
+            # The row's cost columns come from the median-scoring run, so score
+            # and spend in one row describe the same run.
+            ordered = sorted(aggregate.cards, key=lambda card: card.score)
+            card = ordered[(len(ordered) - 1) // 2]
+            return ModelResult(model=_label(planner), card=card, aggregate=aggregate)
+        card = run_scenario(scenario, run_config, transcript_dir=_transcripts(config, planner))
     except Exception as exc:  # noqa: BLE001 - the provider is not ours; a failure is a row
         return ModelResult(model=_label(planner), error=describe(exc))
     return ModelResult(model=_label(planner), card=card)

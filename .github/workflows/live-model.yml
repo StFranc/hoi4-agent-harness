@@ -30,6 +30,26 @@ on:
     - cron: "17 6 * * 1"
 
 jobs:
+  # One cheap call per check, per provider that has a key. Providers without a
+  # key skip themselves, so a fork with no secrets passes with skips.
+  conformance:
+    name: provider conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev,anthropic,openai,google]"
+      - name: Conformance against every configured provider
+        env:
+          HOI4_LIVE_TESTS: "1"
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: pytest tests/live -v -rs
+
   live:
     name: one real run
     runs-on: ubuntu-latest

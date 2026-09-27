@@ -51,12 +51,27 @@ would if you were playing: concrete calls are the advice. `note` still writes \
 your journal. Call advance_time to end the turn, as usual."""
 
 
+def playset_note(name: str) -> str:
+    """Said once, in the stable prefix, when the game is not the one the model
+    remembers. Guidance packs that assert historical dates stay as written; this
+    tells the model which of its own knowledge to distrust."""
+    return (
+        f"This campaign runs on the playset '{name}', not the base game. Countries, "
+        "states, focus trees, technologies and the calendar of events may differ "
+        "from what you remember about Hearts of Iron IV and from any history the "
+        "guidance below assumes. Trust the situation reports and the ids they "
+        "offer over your recollection; an invented id is rejected, with the nearest "
+        "real ones, before it reaches the game."
+    )
+
+
 def build_system(
     guidance: str | Path | None = "doctrine",
     extra: str = "",
     system_prompt_path: str | Path | None = None,
     operational_control: str = "llm",
     advisor: bool = False,
+    playset: str | None = None,
 ) -> str:
     """Assemble the system prompt.
 
@@ -73,6 +88,8 @@ def build_system(
         # Sits with the mechanics, before any guidance: it corrects the fiction
         # that the harness executes what the model calls.
         parts.append(ADVISOR)
+    if playset and playset != "vanilla":
+        parts.append(playset_note(playset))
     text = load_guidance(guidance)
     if text:
         parts.append(text)
