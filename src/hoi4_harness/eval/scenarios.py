@@ -25,6 +25,7 @@ from ..types import (
     ProductionLine,
     ScenarioStart,
     War,
+    WarChange,
 )
 
 
@@ -310,5 +311,70 @@ RECOVERY = Scenario(
     ],
 )
 
+def _front(name: str, friendly: int, hostile: int, supply: float = 1.0) -> Front:
+    return Front(name=name, enemy="SOV", divisions_friendly=friendly,
+                 divisions_enemy=hostile, supply=supply)
+
+
+WINTER_CRISIS = Scenario(
+    key="winter_crisis",
+    title="Three fronts and a counteroffensive",
+    country="GER",
+    start="1941-11-01",
+    until="1942-02-01",
+    max_turns=200,
+    briefing=(
+        "Three fronts against the Soviet Union, all holding for now, and a reserve "
+        "at home. The enemy is massing somewhere. When one front starts to go, the "
+        "question is whether you see which one, commit enough to it in time, and "
+        "leave the fronts that are fine alone. Pockets lose armies."
+    ),
+    start_state=ScenarioStart(
+        stability=0.6,
+        war_support=0.7,
+        political_power=100.0,
+        civilian_factories=30,
+        military_factories=28,
+        production=[ProductionLine(equipment="infantry_equipment_1", factories=20)],
+        stockpiles={"infantry_equipment_1": 20_000},
+        wars=[War(against="SOV", since="1941-06-22"), War(against="ENG", since="1939-09-03")],
+        fronts=[_front("baltic", 30, 40), _front("center", 50, 90, supply=0.5),
+                _front("ukraine", 40, 55)],
+        divisions=[
+            DivisionGroup(template="Infantry", count=30, location="baltic"),
+            DivisionGroup(template="Infantry", count=50, location="center"),
+            DivisionGroup(template="Infantry", count=40, location="ukraine"),
+            DivisionGroup(template="Infantry", count=20, location="home"),
+        ],
+        timeline=[
+            WarChange("1941-12-05", enemy_divisions={"center": 160},
+                      event=("counteroffensive",
+                             "A Soviet counteroffensive breaks against the center.",
+                             "critical")),
+        ],
+    ),
+    objectives=[
+        Objective(
+            "center_held",
+            lambda s: any(f.name == "center" and f.pressure != "losing_ground" for f in s.fronts),
+            description="the center is not losing ground at the end",
+        ),
+        Objective(
+            "no_pocket",
+            lambda s: bool(s.fronts) and not any(f.pocket_divisions for f in s.fronts),
+            description="no front has a pocket forming at the end",
+        ),
+        Objective(
+            "army_intact",
+            lambda s: sum(g.count for g in s.divisions) >= 140,
+            description="140+ divisions still fielded (the start had 140)",
+        ),
+    ],
+    # Holding a front is the game AI's job once the reserve is committed; the
+    # answer lives in delegation and posture, as in defensive_war.
+    operational_control="ai",
+)
+
 SCENARIOS = {s.key: s for s in (ECONOMY_RAMP, WAR_READINESS, DEFENSIVE_WAR,
-                                RESOURCE_STARVED, REARMAMENT_RACE, RECOVERY)}
+                                RESOURCE_STARVED, REARMAMENT_RACE, RECOVERY,
+                                WINTER_CRISIS)}

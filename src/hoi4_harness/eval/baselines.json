@@ -57,5 +57,15 @@
     },
     "score": 0.3333333333333333,
     "turns": 192
+  },
+  "winter_crisis": {
+    "harness_version": "0.1.0",
+    "objectives": {
+      "army_intact": false,
+      "center_held": false,
+      "no_pocket": false
+    },
+    "score": 0.0,
+    "turns": 14
   }
 }

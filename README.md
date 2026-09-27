@@ -180,7 +180,7 @@ verification checklist: [docs/mod-bridge.md](docs/mod-bridge.md).
 | Log-tail adapter (reads the mod's telemetry) | Working, tested |
 | Hybrid control vocabulary + mode switch | Working, tested; unproven as strategy |
 | LLM Bridge mod | Skeleton; structure CI-checked, script tokens need verifying in-game (`verify-bridge` checks them against an install and a log) |
-| Eval runner + scenarios | Working, tested (6 scenarios, multi-seed, cross-model) |
+| Eval runner + scenarios | Working, tested (7 scenarios, multi-seed, cross-model) |
 | Cost measurement (`measure`) | Working, tested; measured against the mock with a scripted planner |
 | Wartime brief + wake rules | Working, tested against synthetic and scripted wars; unmeasured in a real one |
 | Identifier index (playsets) | Working, tested against a fixture playset; not yet run on a real install |
@@ -225,6 +225,13 @@ HOI4_LIVE_ANTHROPIC_MODEL=claude-haiku-4-5 ...   # pick the model per provider
 It also runs weekly in `.github/workflows/live-model.yml` for whichever keys
 the repository has; providers without one skip.
 
+
+## Running it against the real game
+
+Everything that can be built without the game is built; the rest needs one
+sitting with a real install. [docs/live-session.md](docs/live-session.md) is that
+sitting, step by step: what to run, what to look for, and which issue each
+output goes to.
 
 ## Where it goes next
 

@@ -240,6 +240,46 @@ def test_recovery_rewards_diagnosis_over_the_obvious_defaults():
     assert run_card(SCENARIOS["recovery"], _diagnose).score == 1.0
 
 
+def _commit_the_reserve(state):
+    """Winter crisis: raise more divisions, hand the war to the AI, and point
+    its defensive posture at the front that is about to break."""
+    if state.delegated_armies:
+        return []
+    return [
+        ActionCall("deploy_divisions", {"template": "Infantry", "count": 12, "location": "home"}),
+        ActionCall("delegate_army_to_ai", {"army": "all", "delegate": True}),
+        ActionCall("set_ai_posture", {"posture": "defensive", "theater": "center"}),
+    ]
+
+
+def test_winter_crisis_rewards_committing_enough_to_the_right_front():
+    scenario = SCENARIOS["winter_crisis"]
+    assert run_card(scenario, _commit_the_reserve).score == 1.0
+    assert run_card(scenario, lambda state: []).score == 0.0
+
+
+def test_winter_crisis_half_measures_are_not_enough():
+    """Delegating the reserve without raising more cannot hold 160 at 2:1."""
+    def delegate_only(state):
+        if state.delegated_armies:
+            return []
+        return [ActionCall("delegate_army_to_ai", {"army": "all", "delegate": True}),
+                ActionCall("set_ai_posture", {"posture": "defensive", "theater": "center"})]
+
+    assert run_card(SCENARIOS["winter_crisis"], delegate_only).score < 1.0
+
+
+def test_winter_crisis_wakes_the_planner_for_the_counteroffensive():
+    """The scenario exists to exercise the wartime rules: the crisis must be
+    loud enough that the wake rule fires on it."""
+    scenario = SCENARIOS["winter_crisis"]
+    _, history = play(scenario, lambda state: [])
+    crisis = next(s for s in history if any(f.divisions_enemy == 160 for f in s.fronts))
+    assert any(e.severity == "critical" for e in crisis.events) or any(
+        f.pressure == "losing_ground" for f in crisis.fronts
+    )
+
+
 # --- bounding (issue #50) ----------------------------------------------------
 
 def test_a_scenario_stops_at_its_date_however_fast_the_turns_go():

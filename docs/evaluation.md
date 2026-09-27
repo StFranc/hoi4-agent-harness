@@ -14,7 +14,9 @@ Five commands, each answering a different question.
 
 A scenario is a fixed start, an end **date**, and objectives that can be checked
 from the game state — some at the end, some over the whole run ("a focus was
-running on 80%+ of turns"). Six ship in `eval/scenarios.py`. Every score is
+running on 80%+ of turns"). Seven ship in `eval/scenarios.py`; `winter_crisis` is the
+one that tests a multi-front war — three fronts, a reserve, and a counteroffensive
+against one of them that has to be seen and answered with enough, in time. Every score is
 printed against the recorded reflex-only baseline (`eval --no-llm
 --write-baseline`): the reflex layer plays for free, so a model is only
 interesting where it beats it.
