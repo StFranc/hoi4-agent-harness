@@ -313,3 +313,49 @@ def test_the_save_reader_does_not_claim_fields_it_never_reads(tmp_path):
     state = SaveGameAdapter(tmp_path).read_state()
     for name in ("national_focus", "posture", "ai_directives", "delegated_armies"):
         assert not state.known(name)
+
+
+# --- pre-flight -----------------------------------------------------------------
+
+
+def test_a_placeholder_the_action_never_carries_is_refused_at_load(tmp_path):
+    path = tmp_path / "s.json"
+    path.write_text(json.dumps({"schema": 1, "scripts": {
+        "start_research": [{"type": "{tech}"}]}}))
+    with pytest.raises(ValueError, match=r"start_research uses \{tech\}, but its arguments are technology"):
+        load_scripts(path)
+
+
+def test_check_scripts_names_what_is_left_to_calibrate(tmp_path, capsys):
+    from hoi4_harness.calibration import Calibration, save_calibration
+    from hoi4_harness.cli import main
+
+    (tmp_path / "ui_scripts.json").write_text(json.dumps({"schema": 1, "scripts": {
+        "set_national_focus": [{"press": "f"}, {"click": "focus.search"},
+                               {"click": "focus.first_result"}],
+        "start_research": [{"click": "research.tech.{technology}"}],
+    }}))
+    save_calibration(Calibration(screen=(1920, 1080),
+                                 coordinates={"focus.search": (1, 1),
+                                              "research.tech.construction1": (2, 2)}),
+                     tmp_path / "calibration.json")
+    assert main(["check-scripts", "--run-dir", str(tmp_path)]) == 1
+    out = capsys.readouterr().out
+    assert "MISSING        focus.first_result" in out
+    assert "research.tech.{technology}: research.tech.construction1" in out
+
+    save_calibration(Calibration(screen=(1920, 1080),
+                                 coordinates={"focus.search": (1, 1), "focus.first_result": (3, 3)}),
+                     tmp_path / "calibration.json")
+    assert main(["check-scripts", "--run-dir", str(tmp_path)]) == 0
+    assert "ok: every concrete target is calibrated" in capsys.readouterr().out
+
+
+def test_check_scripts_reports_an_invalid_file(tmp_path, capsys):
+    from hoi4_harness.cli import main
+
+    (tmp_path / "ui_scripts.json").write_text(json.dumps({"schema": 1, "scripts": {
+        "hire_advisor": [{"click": "politics.advisor.{advisor}"}]}}))
+    assert main(["check-scripts", "--run-dir", str(tmp_path)]) == 1
+    assert "scripts INVALID" in capsys.readouterr().out
+    assert main(["check-scripts", "--run-dir", str(tmp_path / "none")]) == 2

@@ -97,6 +97,7 @@ the scripts name:
 
 ```bash
 hoi4-harness calibrate
+hoi4-harness check-scripts     # every placeholder valid, every concrete target calibrated
 ```
 
 Try one action at a time, dry run first (it logs the path and sends nothing),

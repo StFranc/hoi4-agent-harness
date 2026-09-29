@@ -180,6 +180,12 @@ your run directory, fix it against what you see, then run `hoi4-harness
 calibrate`, which now walks the targets your scripts click. `calibration.json`
 in the run directory (or `HOI4_CALIBRATION`) is loaded automatically.
 
+`hoi4-harness check-scripts` is the pre-flight: the scripts parse, every
+`{placeholder}` is one of the action's real arguments (a typo is refused when the
+file loads, not on the first live attempt), and every concrete click target has
+a calibrated coordinate. Templated targets are listed with the values calibrated
+so far.
+
 ## composite
 
 Pairs a reader with a writer: `--adapter logtail+input`, `savegame+input` or
