@@ -16,6 +16,7 @@
     hoi4-harness handover                   hand the keyboard to a --handover session
     hoi4-harness verify-bridge              check the mod's tokens against an install and a log
     hoi4-harness save-inspect               what a save contains, for mapping it
+    hoi4-harness check-scripts              pre-flight the input driver's scripts and calibration
     hoi4-harness mod-directives --tags ...  regenerate the mod's per-target directives
 
 Everything defaults to the mock adapter and the scripted model, so a fresh clone
@@ -506,6 +507,52 @@ def calibration_targets(config: HarnessConfig) -> list[str]:
     return [t for t in targets if "{" not in t] or list(DEFAULT_TARGETS)
 
 
+def cmd_check_scripts(args: argparse.Namespace) -> int:
+    """Pre-flight for the input driver: scripts parse, placeholders exist,
+    every concrete click target is calibrated. Nothing touches the game."""
+    from .adapters.ui_scripts import DEFAULT_FILENAME as SCRIPTS_FILENAME
+    from .adapters.ui_scripts import load_scripts, missing_targets, targets_in
+    from .calibration import load_calibration
+
+    config = _config_from_args(args)
+    scripts_path = config.ui_scripts_path or config.run_dir / SCRIPTS_FILENAME
+    calibration_path = config.calibration_path or config.run_dir / DEFAULT_FILENAME
+    if not Path(scripts_path).exists():
+        print(f"check-scripts: no {scripts_path}; copy profiles/ui_scripts.example.json there",
+              file=sys.stderr)
+        return 2
+    try:
+        scripts = load_scripts(scripts_path)
+    except ValueError as exc:
+        print(f"scripts INVALID  {exc}")
+        return 1
+    print(f"scripts          {scripts_path}: {', '.join(sorted(scripts)) or 'none'}")
+    coordinates: dict = {}
+    if Path(calibration_path).exists():
+        try:
+            calibration = load_calibration(calibration_path)
+        except (RuntimeError, ValueError) as exc:
+            print(f"calibration INVALID  {exc}")
+            return 1
+        coordinates = calibration.coordinates
+        width, height = calibration.screen
+        print(f"calibration      {calibration_path}: {len(coordinates)} targets at {width}x{height}")
+    else:
+        print(f"calibration      none at {calibration_path}")
+    missing = missing_targets(scripts, coordinates)
+    for target in missing:
+        print(f"  MISSING        {target}")
+    for target in (t for t in targets_in(scripts) if "{" in t):
+        prefix = target.split("{", 1)[0]
+        have = sorted(k for k in coordinates if k.startswith(prefix))
+        print(f"  per value      {target}: " + (", ".join(have) if have else "none calibrated yet"))
+    if missing:
+        print(f"{len(missing)} target(s) to calibrate: hoi4-harness calibrate {' '.join(missing)}")
+        return 1
+    print("ok: every concrete target is calibrated")
+    return 0
+
+
 def cmd_calibrate(args: argparse.Namespace) -> int:
     from .calibration import capture_calibration, save_calibration
 
@@ -691,6 +738,12 @@ def build_parser() -> argparse.ArgumentParser:
     moddir.add_argument("--check", action="store_true",
                         help="exit 1 if the committed files differ from what would be generated")
     moddir.set_defaults(func=cmd_mod_directives)
+
+    check_scripts = sub.add_parser(
+        "check-scripts", help="pre-flight the input driver's scripts and calibration"
+    )
+    common(check_scripts)
+    check_scripts.set_defaults(func=cmd_check_scripts)
 
     calibrate = sub.add_parser("calibrate", help="record screen coordinates for the input driver")
     common(calibrate)

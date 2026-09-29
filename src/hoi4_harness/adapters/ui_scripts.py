@@ -99,8 +99,39 @@ def load_scripts(path: Path) -> dict[str, list[Step]]:
                 f"{path}: no verification exists for {action!r}, so it cannot be scripted. "
                 f"Scriptable: {', '.join(sorted(VERIFIERS))}"
             )
-        scripts[action] = parse_steps(raw)
+        steps = parse_steps(raw)
+        unknown = sorted(placeholders(steps) - _parameters(action))
+        if unknown:
+            # Caught here, at load, rather than on the first live attempt: a
+            # placeholder the action never carries can never be filled.
+            raise ValueError(
+                f"{path}: {action} uses {', '.join('{' + u + '}' for u in unknown)}, but its "
+                f"arguments are {', '.join(sorted(_parameters(action))) or 'none'}"
+            )
+        scripts[action] = steps
     return scripts
+
+
+def placeholders(steps: list[Step]) -> set[str]:
+    """The ``{names}`` a script fills from the action's arguments."""
+    return {
+        name
+        for step in steps if step.kind != "wait"
+        for _, name, _, _ in string.Formatter().parse(step.value) if name
+    }
+
+
+def _parameters(action: str) -> set[str]:
+    from ..actions.catalog import get
+
+    spec = get(action)
+    return set((spec.parameters.get("properties") or {}) if spec else ())
+
+
+def missing_targets(scripts: dict[str, list[Step]], coordinates: dict) -> list[str]:
+    """Concrete click targets with no calibrated coordinate. Templated ones are
+    left out: which values they need depends on what the model asks for."""
+    return [t for t in targets_in(scripts) if "{" not in t and t not in coordinates]
 
 
 def targets_in(scripts: dict[str, list[Step]]) -> list[str]:
