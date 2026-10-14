@@ -28,7 +28,9 @@ And one for adapters that queue events, which today means logtail: **a read is
 not a consumer.** A turn reads state several times (the clock wait polls, the
 brief, verification), and only the loop knows which read its wake rule judged.
 Events stay in `state.events` until the loop passes them to
-`acknowledge_events()` at the end of the turn.
+`acknowledge_events()` at the end of the turn. `env.reset()` does the same for
+what its first read found already queued: a backlog in the log at attach is
+history, not news.
 
 ## mock — complete
 

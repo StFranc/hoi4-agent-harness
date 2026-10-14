@@ -67,6 +67,13 @@ Rules the parser holds to, all of them tested in
   declaration wakes the planner once, and anything that landed later in the
   turn waits for the next one. The loop-level check is
   [`tests/test_logtail_wake.py`](../tests/test_logtail_wake.py).
+- **What is already in the log when the harness attaches is history, not
+  news.** The reader starts at the top of `game.log`, so its first read takes in
+  every event the mod has logged this game session. `reset()` acknowledges the
+  events that read returned, so a fresh start, `play --resume` and attaching to
+  a game a person has been playing do not wake turn 1 for old wars, including
+  ones a previous run already answered. Only that read's events: anything
+  logged after it is news.
 
 ## What needs verifying before you trust a run
 

@@ -101,7 +101,14 @@ class HOI4Env:
             self.adapter.pause()
         # The brief reset returns is real (the observe CLI prints it), but it must
         # not set the diff baseline: the first observe() after reset is still full.
-        return self.observe(remember=False)
+        observation = self.observe(remember=False)
+        # Whatever this first read found already queued is history, not news: the
+        # log-tail reader starts at the top of game.log, so a fresh start, a
+        # `play --resume` or a co-op attach would otherwise wake turn 1 for every
+        # war the mod has logged this session, including ones a previous run has
+        # already answered. Only what this read returned: anything later is news.
+        self.adapter.acknowledge_events(observation.state.events)
+        return observation
 
     # --- acting --------------------------------------------------------------
 

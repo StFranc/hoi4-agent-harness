@@ -50,9 +50,10 @@ class GameAdapter(abc.ABC):
 
         Called once a turn, before the clock moves on, with the very event
         objects the turn's reads returned -- the ones the wake rule judged and
-        the brief showed. An event that arrived after those reads is not among
-        them and stays for the next turn. Default: nothing to do, for adapters
-        that do not queue events.
+        the brief showed -- and once by ``HOI4Env.reset`` with whatever its
+        first read found already queued. An event that arrived after those reads
+        is not among them and stays for the next turn. Default: nothing to do,
+        for adapters that do not queue events.
         """
 
     @abc.abstractmethod

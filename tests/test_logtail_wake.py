@@ -99,7 +99,7 @@ class Keyboard(GameAdapter):
         raise NotImplementedError
 
 
-def play(tmp_path, game: Game, turns: int, planner=None, **config):
+def play(tmp_path, game: Game, turns: int, planner=None, resume=False, **config):
     config = HarnessConfig(turns=turns, **config)
     adapter = CompositeAdapter(GameLog(game), Keyboard(game),
                                clock_owner=config.clock_owner, poll_seconds=0)
@@ -107,7 +107,7 @@ def play(tmp_path, game: Game, turns: int, planner=None, **config):
     env.reset()
     transcript = tmp_path / "transcript.jsonl"
     loop = AgentLoop(env=env, planner=planner or ScriptedClient(), config=config,
-                     transcript_path=transcript)
+                     transcript_path=transcript, resume=resume)
     loop.run(turns)
     records = [json.loads(line) for line in transcript.read_text(encoding="utf-8").splitlines()]
     return loop, records
@@ -179,3 +179,30 @@ def test_a_war_the_brief_already_showed_does_not_wake_the_planner_again(tmp_path
     assert observed[0]["wake_reason"] == "scheduled review"     # judged on 01-04
     assert "Germany declared war" in observed[0]["brief"]       # read on 01-05
     assert WAR_WAKE not in [r["wake_reason"] for r in observed]
+
+
+def test_events_already_in_the_log_at_attach_are_history_not_news(tmp_path):
+    """The reader starts at the top of game.log, so its first read takes in every
+    event the mod has logged this session. Starting the harness, resuming it, or
+    attaching to a game a person has been playing must not report those as news."""
+    log = tmp_path / "game.log"
+    log.write_text(STATE.format(date="1935.12.20") + WAR, encoding="utf-8")
+    game = Game(log, start="1936-01-01")
+    loop, records = play(tmp_path, game, turns=2)
+
+    observed = wakes(records)
+    assert observed[0]["wake_reason"] == "scheduled review"
+    assert "Germany declared war" not in observed[0]["brief"]
+    assert WAR_WAKE not in [r["wake_reason"] for r in observed]
+
+
+def test_a_resumed_run_does_not_wake_again_for_a_war_already_answered(tmp_path):
+    """``play --resume``: a new reader re-reads game.log from the top, war included."""
+    game = Game(tmp_path / "game.log", events={"1936-01-05": [WAR]})
+    play(tmp_path, game, turns=3)
+    loop, records = play(tmp_path, game, turns=2, resume=True)
+
+    resumed_at = next(i for i, r in enumerate(records) if r["kind"] == "resumed")
+    after = wakes(records[resumed_at:])
+    assert WAR_WAKE not in [r["wake_reason"] for r in after]
+    assert not any("Germany declared war" in r["brief"] for r in after)
