@@ -49,7 +49,7 @@ you at run time.
 
 | Setting | Notes |
 |---|---|
-| `days_per_turn` | in-game days between scheduled reviews |
+| `days_per_turn` | in-game days a turn runs the clock, and between scheduled reviews: a turn nothing else wakes the model for is a review |
 | `wake_on_no_focus`, `wake_on_free_research_slot` | opportunity wakes; turn off for a strictly scheduled run |
 | `wake_on_encirclement`, `wake_on_supply_collapse`, `wake_on_capital_threat`, `wake_on_ally_capitulation`, `wake_on_front_quiet` | wartime wakes, each on the onset of its condition; only consulted while at war |
 | `planner_enabled` | `--no-llm` never wakes the model at all: reflexes only, zero model calls. `eval --no-llm --write-baseline` records those scores as the baseline every score card is reported against |
