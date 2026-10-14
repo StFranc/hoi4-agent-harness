@@ -166,3 +166,16 @@ def test_a_war_declared_while_the_model_thinks_is_not_lost(tmp_path):
     assert "Germany declared war" not in observed[0]["brief"]   # it had not happened yet
     assert [r["wake_reason"] for r in observed][:2] == ["scheduled review", WAR_WAKE]
     assert "Germany declared war" in observed[1]["brief"]
+
+
+def test_a_war_the_brief_already_showed_does_not_wake_the_planner_again(tmp_path):
+    """Player-owned clock: the war lands between the wake rule's read and the
+    brief's. The model saw it in that brief, so it is answered, and the next turn
+    must not wake for it a second time."""
+    game = Game(tmp_path / "game.log", events={"1936-01-05": [WAR]}, running=True)
+    loop, records = play(tmp_path, game, turns=3, clock_owner="player")
+
+    observed = wakes(records)
+    assert observed[0]["wake_reason"] == "scheduled review"     # judged on 01-04
+    assert "Germany declared war" in observed[0]["brief"]       # read on 01-05
+    assert WAR_WAKE not in [r["wake_reason"] for r in observed]
