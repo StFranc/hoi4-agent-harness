@@ -147,7 +147,8 @@ class HarnessConfig:
     # --- pacing -------------------------------------------------------------
     # The harness owns the clock. It pauses the game, decides, then runs forward
     # `days_per_turn` in-game days before looking again. A critical event cuts
-    # the wait short.
+    # the wait short. It is also the scheduled review interval, so a turn that
+    # nothing else wakes the planner for is a review.
     days_per_turn: int = 7
     max_actions_per_turn: int = 8
     max_tool_rounds_per_turn: int = 3

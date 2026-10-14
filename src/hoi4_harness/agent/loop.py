@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from ..actions import catalog, registry
+from ..adapters.clock import days_between
 from ..config import HarnessConfig
 from ..env import HOI4Env
 from ..observation.builder import snapshot as deepcopy_state
@@ -205,7 +206,6 @@ class AgentLoop:
                 days_since_planner = 0
             else:
                 actions, turn_tokens = self._reflex_turn(decision.reason)
-                days_since_planner += self.config.days_per_turn
 
             handover = self.env.run_handover()
             if handover is not None:
@@ -213,6 +213,10 @@ class AgentLoop:
                 if self.progress:
                     self.progress(handover.summary())
             state = self.env.advance()
+            # Every turn's days count, the planner's own included. Adding only
+            # reflex turns left the turn after each review at 0, so with
+            # nothing else waking the planner it reviewed every other turn.
+            days_since_planner += self._days_elapsed(turn_date, state.date)
             self.report.turns += 1
             self.report.end_date = state.date
             if self.progress:
@@ -240,6 +244,19 @@ class AgentLoop:
         return self.report
 
     # --- one turn ------------------------------------------------------------
+
+    def _days_elapsed(self, before: str, after: str) -> int:
+        """Game days one turn ran, read off the calendar.
+
+        Read rather than assumed, so a turn that ran longer than
+        ``days_per_turn`` (the model's own advance_time on the mock) or shorter
+        (an early return on a critical event) counts as it actually ran. A date
+        that cannot be parsed, or that did not move, counts as the days the turn
+        asked for: a reader that loses the calendar must not quietly end the
+        scheduled review.
+        """
+        elapsed = days_between(before, after)
+        return elapsed if elapsed > 0 else self.config.days_per_turn
 
     def _reflex_turn(self, reason: str) -> tuple[list[str], int]:
         self.report.reflex_turns += 1
