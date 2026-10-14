@@ -65,7 +65,12 @@ Rules the parser holds to, all of them tested in
   that turn's brief. Before the clock moves on, the loop acknowledges the events
   its wake rule judged and its brief showed, and only those: one war
   declaration wakes the planner once, and anything that landed later in the
-  turn waits for the next one. The loop-level check is
+  turn waits for the next one. The exception is a wake whose model call fails
+  before the model has replied. Then nothing is acknowledged: the war stays
+  pending, the clock wait ends at once, and the next turn wakes for it again.
+  Those retries count towards `max_consecutive_llm_errors` like any other
+  failed call, so a provider that stays down stops the run at the war rather
+  than playing on past it. The loop-level checks are in
   [`tests/test_logtail_wake.py`](../tests/test_logtail_wake.py).
 - **What is already in the log when the harness attaches is history, not
   news.** The reader starts at the top of `game.log`, so its first read takes in

@@ -206,3 +206,83 @@ def test_a_resumed_run_does_not_wake_again_for_a_war_already_answered(tmp_path):
     after = wakes(records[resumed_at:])
     assert WAR_WAKE not in [r["wake_reason"] for r in after]
     assert not any("Germany declared war" in r["brief"] for r in after)
+
+
+class FailsOnTheWar(ScriptedClient):
+    """A provider that times out on the first call whose brief mentions the war.
+
+    ``first`` is what the war wake's first call returns instead, when the
+    failure should come in a later round, after the model has answered."""
+
+    def __init__(self, first=None):
+        super().__init__()
+        self.first = first
+        self.failed = False
+
+    def complete(self, system, messages, tools=None, max_tokens=None):
+        if not self.failed and "Germany declared war" in messages[0].text:
+            if self.first is not None:
+                first, self.first = self.first, None
+                self.calls.append((system, list(messages)))
+                return first
+            self.failed = True
+            raise TimeoutError("the provider timed out")
+        return super().complete(system, messages, tools, max_tokens)
+
+
+def test_a_war_wake_whose_model_call_fails_wakes_the_planner_again(tmp_path):
+    """The model never answered, so the war is not answered either: it stays
+    queued, and the next turn wakes for it rather than playing on without it."""
+    game = Game(tmp_path / "game.log", events={"1936-01-05": [WAR]})
+    planner = FailsOnTheWar()
+    loop, records = play(tmp_path, game, turns=4, planner=planner)
+
+    assert planner.failed
+    assert [r["kind"] for r in records].count("llm_error") == 1
+    observed = wakes(records)
+    reasons = [r["wake_reason"] for r in observed]
+    assert reasons[:3] == ["scheduled review", WAR_WAKE, WAR_WAKE]
+    assert reasons.count(WAR_WAKE) == 2               # once failed, once answered
+    assert "Germany declared war" in observed[2]["brief"]
+    # The retry turn did not run the clock past the war: the pending event ends
+    # its wait at once.
+    ends = [r for r in records if r["kind"] == "turn_end"]
+    assert days_between(ends[1]["from_date"], ends[1]["date"]) <= 1
+
+
+def test_a_provider_that_stays_down_stops_the_run_at_the_war(tmp_path):
+    """The retries are failed calls like any other, so the consecutive-error
+    limit still ends the run, on the war, rather than retrying forever."""
+
+    class Down(ScriptedClient):
+        def complete(self, system, messages, tools=None, max_tokens=None):
+            if "Germany declared war" in messages[0].text:
+                raise TimeoutError("the provider timed out")
+            return super().complete(system, messages, tools, max_tokens)
+
+    game = Game(tmp_path / "game.log", events={"1936-01-05": [WAR]})
+    loop, records = play(tmp_path, game, turns=20, planner=Down(), max_consecutive_llm_errors=3)
+
+    assert loop.report.stopped_reason.startswith("3 consecutive provider errors")
+    assert [r["kind"] for r in records].count("llm_error") == 3
+    assert [r["wake_reason"] for r in wakes(records)].count(WAR_WAKE) == 3
+    assert loop.report.end_date <= "1936-01-08"     # a day a retry in this fake game
+
+
+def test_a_model_call_that_fails_after_the_model_answered_does_not_wake_again(tmp_path):
+    """The model read the war and replied; a later round failing does not make
+    the war news again."""
+    from hoi4_harness.agent.llm.base import LLMResponse, ToolCall, Usage
+
+    noted = LLMResponse(
+        text="War. Noting it before anything else.",
+        tool_calls=[ToolCall(id="n1", name="note", arguments={"text": "Germany is at war"})],
+        stop_reason="tool_use", usage=Usage(input_tokens=10, output_tokens=10), model="scripted",
+    )
+    game = Game(tmp_path / "game.log", events={"1936-01-05": [WAR]})
+    planner = FailsOnTheWar(first=noted)
+    loop, records = play(tmp_path, game, turns=4, planner=planner)
+
+    assert planner.failed
+    reasons = [r["wake_reason"] for r in wakes(records)]
+    assert reasons.count(WAR_WAKE) == 1

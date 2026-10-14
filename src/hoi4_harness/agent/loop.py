@@ -135,7 +135,8 @@ class AgentLoop:
         self.run_dir = transcript_path.parent if transcript_path else None
         self._consecutive_errors = 0
         #: The events this turn answers for: what the wake rule judged, plus
-        #: what the brief showed if the planner woke. See _acknowledge.
+        #: what the brief showed if the planner woke, or nothing if the woken
+        #: model never replied. See _acknowledge.
         self._answered: list[GameEvent] = []
         #: One snapshot per turn, for objectives that are about the whole run
         #: rather than where it stopped. Snapshots, not references: adapters
@@ -336,6 +337,7 @@ class AgentLoop:
 
         taken: list[str] = []
         turn_tokens = 0
+        heard_back = False
         for _round in range(self.config.max_tool_rounds_per_turn):
             if not self.budget.allows_call():
                 break
@@ -343,7 +345,14 @@ class AgentLoop:
                 response = self.planner.complete(self.system, messages, tools)
             except Exception as exc:  # noqa: BLE001 - the provider is not ours
                 self._record_llm_failure(exc, turn_date)
+                if not heard_back:
+                    # The model never answered this turn, so neither did the
+                    # loop: leave every event queued. A war that woke this turn
+                    # stays pending, ends the clock wait at once, and wakes the
+                    # next turn, rather than being acknowledged unseen.
+                    self._answered = []
                 return self._reflex_fallback(f"model call failed: {type(exc).__name__}")
+            heard_back = True
             self._consecutive_errors = 0
             self.budget.record(response.usage)
             turn_tokens += response.usage.input_tokens + response.usage.output_tokens
@@ -486,7 +495,8 @@ class AgentLoop:
         event that cuts the wait short -- or while the model is thinking is
         still there for the next turn's wake rule and brief. Before the
         advance, not after it: the wait returns at once on a pending critical
-        event, which must be news rather than this turn's own.
+        event, which must be news rather than this turn's own. Empty after a
+        wake whose model call failed before any reply: see _planner_turn.
         """
         self.env.acknowledge_events(self._answered)
         self._answered = []

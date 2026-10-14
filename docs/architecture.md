@@ -84,7 +84,9 @@ on four models" a config change.
 8. In handover mode, run the queue if the player has granted a window.
 9. Record the turn in memory, acknowledge the events from (1) and the brief in
    (5), advance the clock, repeat. An event that arrives after those reads,
-   including the one that cuts the wait short, is still pending next turn.
+   including the one that cuts the wait short, is still pending next turn. A
+   wake whose model call failed before any reply acknowledges nothing, so its
+   war wakes the next turn again.
 
 Everything above is written to a JSONL transcript, one record per event, which is
 what the eval runner and any later analysis read.
