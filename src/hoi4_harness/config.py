@@ -197,6 +197,11 @@ class HarnessConfig:
     # playing the same campaign, since being paused mid-battle by your own
     # tooling is worse than having no tooling.
     clock_owner: str = "harness"
+    # How long the in-game date must stand still before the input driver takes
+    # the game as paused. The pause key is a toggle, so the driver looks before
+    # and after pressing it; this must be longer than an in-game day takes at
+    # the speed the game runs.
+    clock_probe_seconds: float = 10.0
     # Co-op turn-taking: every action is queued and runs only when the player
     # grants a window (handover.py). For playing alongside a person, not for
     # scoring -- the eval runner refuses a handover run.
@@ -245,6 +250,7 @@ class HarnessConfig:
             enforce_window_focus=_env_bool("HOI4_ENFORCE_WINDOW_FOCUS", True),
             operational_control=os.environ.get("HOI4_OPERATIONAL_CONTROL", "llm").strip(),
             clock_owner=os.environ.get("HOI4_CLOCK_OWNER", "harness").strip(),
+            clock_probe_seconds=_env_float("HOI4_CLOCK_PROBE_SECONDS", 10.0) or 10.0,
             handover=_env_bool("HOI4_HANDOVER", False),
             country=os.environ.get("HOI4_COUNTRY", "SWE"),
             start_date=os.environ.get("HOI4_START_DATE", "1936-01-01"),

@@ -21,7 +21,12 @@ the moment a critical event fires.
 
 Speed 5 on a fast machine runs roughly a game-week in a couple of seconds, so a
 1936–1939 campaign at weekly reviews is a few minutes of game time plus however
-long the model takes across ~105 wakes (measured; see below).
+long the model takes across ~105 wakes (measured; see below). On the real game
+add the pause check: the pause key is a toggle, so after each pause the input
+driver watches the date stand still for `clock_probe_seconds` before it trusts
+it ([adapters.md](adapters.md#the-clock-a-toggle-so-look-before-pressing)). At
+the default 10 s that is about half an hour over the ~190 turns of that
+campaign; at speed 5 the window can be cut to a couple of seconds.
 
 ## 2. Most game-days are not decisions
 

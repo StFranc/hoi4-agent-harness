@@ -121,6 +121,31 @@ A platform with no implemented check reports **unsupported** and refuses, rather
 than passing. A guard that always returns true is worse than no guard, because it
 gets trusted. `--no-window-guard` is the deliberate opt-out.
 
+### The clock: a toggle, so look before pressing
+
+HOI4 has one pause key, `space`, and it toggles. Pressed blind, it is right only
+when the game happens to be in the state the harness assumes, and HOI4 loads
+paused, so a run that started on a paused game used to run while the model
+decided and stand still while the harness waited. `pause()` and `resume()` (and
+`set_game_speed(0)`, which goes through `pause()`) therefore read the game first,
+through the reader the composite attached:
+
+- A date that moves proves the game is running. A date that stands still for
+  `clock_probe_seconds` (default 10, `HOI4_CLOCK_PROBE_SECONDS`) is taken as
+  paused. The readers see one date per in-game day, so this has to be longer than
+  a day takes at the speed you run; at speed 5 a couple of seconds is plenty.
+- The key is pressed only when the game is in the other state, and the date is
+  watched again after every press. If the press did not take (someone else
+  pressed it, say), it is pressed once more.
+- If the date still does not do what it should, the clock cannot be seen from
+  here, and the driver raises `ClockUnobservable` instead of toggling blind. A
+  reader whose date only moves when the game autosaves ends up here.
+
+The cost is the stop check: every pause watches a still date for
+`clock_probe_seconds`, so each turn takes that much longer.
+`speed` in `resume(speed)` is still not applied; the game runs at whatever speed
+it was left at.
+
 ### UI scripts: act, then prove it
 
 A blind click is unverifiable, and an unverified action reported as success is
@@ -199,7 +224,9 @@ the game is left paused on every exit path including the timeout and an exceptio
 from the reader.
 
 Who owns the clock is a setting. With `clock_owner="harness"` (the default) the
-composite unpauses, waits, and pauses again. With `clock_owner="player"` it never
+composite unpauses, waits, and pauses again, counting the days from the date
+before the unpause, since the input driver lets the game run while it watches
+the date start to move. With `clock_owner="player"` it never
 sends a clock instruction at all — it only watches the date move — and
 `set_game_speed` is removed from the action list so the model cannot take the
 clock either. That is the mode to use when a person is playing the same

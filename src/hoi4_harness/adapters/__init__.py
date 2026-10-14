@@ -73,6 +73,7 @@ def build_adapter(config: HarnessConfig) -> GameAdapter:
             InputConfig(
                 window_title=config.window_title,
                 enforce_focus=config.enforce_window_focus,
+                clock_probe_seconds=config.clock_probe_seconds,
             ),
             dry_run=config.dry_run,
             scripts=load_scripts(scripts_path) if Path(scripts_path).exists() else None,

@@ -5,7 +5,9 @@ part this file is structured around: a blind click is unverifiable, so every
 scripted action acts, re-reads through the reader it is composed with, and
 confirms the state actually changed -- reporting failure, or "unverified",
 rather than assuming success. The click paths themselves are recorded by the
-operator (``ui_scripts.py``); an action with no recorded path is refused.
+operator (``ui_scripts.py``); an action with no recorded path is refused. The
+clock is held to the same rule: the pause key is a toggle, so the game's date is
+watched before and after it is pressed (``_drive_clock``).
 
 Hotkeys are far more reliable than coordinates and should be preferred wherever
 the game exposes one. Coordinates are resolution- and UI-scale-dependent and
@@ -42,8 +44,16 @@ HOTKEYS = {
 }
 
 
+#: How often the clock check re-reads the date while it watches.
+CLOCK_POLL_SECONDS = 0.5
+
+
 class NotFocused(RuntimeError):
     """The game was not the focused window, so nothing was sent."""
+
+
+class ClockUnobservable(RuntimeError):
+    """Whether the game is paused could not be seen, so the clock was not driven."""
 
 
 @dataclass
@@ -57,6 +67,11 @@ class InputConfig:
     #: Refuse to send input unless the game is focused. Turning this off is an
     #: explicit choice to let keystrokes land wherever they land.
     enforce_focus: bool = True
+    #: How long the date has to stand still before the game counts as paused.
+    #: The readers see one date per in-game day, so this must be longer than a
+    #: day takes at the speed the game runs. Too short shows up at an unpause:
+    #: the date is not seen to move, and the clock refuses to go on.
+    clock_probe_seconds: float = 10.0
 
 
 class InputDriverAdapter(GameAdapter):
@@ -92,6 +107,10 @@ class InputDriverAdapter(GameAdapter):
         self.verify_timeout = verify_timeout
         self.supported_actions = self.BUILT_IN | frozenset(self.scripts)
         self._gui_override = gui
+        #: Whether the game was running when the clock was last seen: True,
+        #: False, or None for not known. It decides whether to look or to press
+        #: first, never whether to look at all (see _drive_clock).
+        self._running: bool | None = None
 
     def attach_reader(self, read_state: Callable[[], GameState]) -> None:
         """Give the writer eyes: the reader that verifies what it did."""
@@ -230,7 +249,7 @@ class InputDriverAdapter(GameAdapter):
     def apply(self, call: ActionCall) -> ActionResult:
         try:
             return self._apply(call)
-        except (NotFocused, KeyError) as exc:
+        except (NotFocused, ClockUnobservable, KeyError) as exc:
             # The same contract as every other adapter failure: report it, do not
             # pretend the action happened. The agent can read this and wait.
             return ActionResult(
@@ -246,7 +265,11 @@ class InputDriverAdapter(GameAdapter):
             return ActionResult(ok=True, action=call.name, call_id=call.call_id, message="Noted.")
         if call.name == "set_game_speed":
             speed = int(call.arguments["speed"])
-            self.press(HOTKEYS["pause"] if speed == 0 else HOTKEYS["speed_up"])
+            if speed == 0:
+                # The pause key is a toggle: pressed on a paused game it unpauses.
+                self.pause()
+            else:
+                self.press(HOTKEYS["speed_up"])
             return ActionResult(ok=True, action=call.name, call_id=call.call_id,
                                 message=f"Speed -> {speed}")
         if call.name == "advance_time":
@@ -256,11 +279,77 @@ class InputDriverAdapter(GameAdapter):
             return self._scripted(call)
         return self.unsupported(call)
 
+    # --- the clock -----------------------------------------------------------
+
     def pause(self) -> None:
-        self.press(HOTKEYS["pause"])
+        self._drive_clock(running=False)
 
     def resume(self, speed: int = 3) -> None:
-        self.press(HOTKEYS["pause"])
+        # ``speed`` is not applied: nothing reads the game's speed back, so the
+        # game runs at whatever speed it was left at, as before.
+        self._drive_clock(running=True)
+
+    def _drive_clock(self, running: bool) -> None:
+        """Leave the game running or paused, whatever it was doing before.
+
+        The pause key is a toggle, so a blind press is right only when the game
+        happens to be in the state the harness assumes -- and HOI4 loads paused.
+        So: look first when the game is believed to be there already, or nothing
+        is known; press first when it is believed to be in the other state; and
+        look after every press. A press that did not take (the belief was stale,
+        or someone else pressed the key) is followed by one more. If the date
+        still does not do what it should, the clock cannot be seen from here,
+        and it is not driven blind: this raises.
+        """
+        if self.dry_run:
+            self.log.append(f"{'resume' if running else 'pause'}: dry run, nothing sent")
+            return
+        if self._read_state is None:
+            raise ClockUnobservable(
+                "no reader to see whether the game is paused, and the pause key is a "
+                "toggle; refusing to press it blind"
+            )
+        self._require_focus()          # before spending a probe window on a lost cause
+        believed, self._running = self._running, None
+        if believed is None or believed == running:
+            if self._date_moves() == running:
+                self._running = running
+                return
+        for _ in range(2):
+            self.press(HOTKEYS["pause"])
+            self._sleep(self.config.settle_seconds)
+            if self._date_moves() == running:
+                self._running = running
+                return
+        probe = self.config.clock_probe_seconds
+        if running:
+            raise ClockUnobservable(
+                f"the in-game date did not move within {probe:g} s after either of two "
+                "presses of the pause key, so whether the game is paused cannot be seen. "
+                f"If a day takes longer than {probe:g} s at this speed, raise "
+                "clock_probe_seconds or run the game faster."
+            )
+        raise ClockUnobservable(
+            f"the in-game date kept moving after each of two presses of the pause key "
+            f"(watched {probe:g} s each time), so the game could not be paused"
+        )
+
+    def _date_moves(self) -> bool:
+        """Watch the date for up to ``clock_probe_seconds``; True once it moves.
+
+        A moving date proves the game runs. A still one is taken as paused only
+        after the whole window, since a running game shows a new date just once
+        per in-game day. Time is counted in the sleeps, so slow reads only make
+        the window longer.
+        """
+        start = self._read_state().date
+        waited = 0.0
+        while waited < self.config.clock_probe_seconds:
+            self._sleep(CLOCK_POLL_SECONDS)
+            waited += CLOCK_POLL_SECONDS
+            if self._read_state().date != start:
+                return True
+        return False
 
     def advance(self, days: int) -> GameState:
         raise NotImplementedError("Compose with a reader to observe the clock.")

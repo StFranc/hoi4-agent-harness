@@ -40,15 +40,17 @@ def wait_for_days(
     seconds_per_day: float = SECONDS_PER_GAME_DAY,
     sleep: Callable[[float], None] = time.sleep,
     now: Callable[[], float] = time.monotonic,
+    start: str | None = None,
 ) -> GameState:
     """Poll ``read_state`` until the in-game date has moved ``days`` forward.
 
     Returns as soon as a critical event appears -- the whole point of a wake rule
     is that a war declaration does not wait for the schedule. ``sleep`` and
-    ``now`` are injectable so tests do not spend real time.
+    ``now`` are injectable so tests do not spend real time. ``start`` is the date
+    to count from when the game may already have moved before the first read.
     """
     state = read_state()
-    start = state.date
+    start = start or state.date
     if days <= 0 or has_critical_event(state):
         return state
 

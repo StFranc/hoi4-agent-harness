@@ -67,6 +67,7 @@ you at run time.
 | `operational_control` | `llm` (model commands directly) or `ai` (native AI runs operations — see [hybrid-control.md](hybrid-control.md)) |
 | `handover`, `--handover`, `HOI4_HANDOVER` | co-op turn-taking: actions queue until the player runs `hoi4-harness handover` — see [co-op.md](co-op.md) |
 | `clock_owner`, `--player-clock` | `harness` (pauses and drives the clock) or `player` (never touches it — required when a person is playing the same campaign) |
+| `clock_probe_seconds` / `HOI4_CLOCK_PROBE_SECONDS` | how long the date must stand still before the input driver takes the game as paused (default 10). The pause key is a toggle, so it looks before and after pressing; this must be longer than an in-game day at your game speed, and every turn spends it once — see [adapters.md](adapters.md#the-clock-a-toggle-so-look-before-pressing) |
 | `country`, `start_date`, `seed` | mock adapter start |
 | `log_path` / `HOI4_LOG_PATH` | `game.log`, for the logtail adapter |
 | `save_dir`, `window_title` | real-game adapters |
