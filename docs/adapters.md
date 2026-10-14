@@ -7,7 +7,8 @@ world, so the contract makes that subset explicit rather than papering over it.
 class GameAdapter:
     supported_actions: frozenset[str]
     def info(self) -> AdapterInfo: ...
-    def read_state(self) -> GameState: ...
+    def read_state(self) -> GameState: ...           # never consumes events
+    def acknowledge_events(self, events) -> None: ... # the loop has answered these
     def apply(self, call: ActionCall) -> ActionResult: ...
     def pause(self) -> None: ...
     def resume(self, speed: int = 3) -> None: ...
@@ -22,6 +23,12 @@ Two invariants hold everywhere:
 - **Unknown, not zero.** A field the adapter could not read goes in
   `unknown_fields` and renders as `unknown`. A fabricated `0` for war support is
   worse than a gap, because the agent will reason confidently from it.
+
+And one for adapters that queue events, which today means logtail: **a read is
+not a consumer.** A turn reads state several times (the clock wait polls, the
+brief, verification), and only the loop knows which read its wake rule judged.
+Events stay in `state.events` until the loop passes them to
+`acknowledge_events()` at the end of the turn.
 
 ## mock — complete
 

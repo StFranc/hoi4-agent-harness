@@ -82,7 +82,9 @@ on four models" a config change.
 7. Up to `max_tool_rounds_per_turn` rounds, so the model can react to a rejection
    without being able to loop forever.
 8. In handover mode, run the queue if the player has granted a window.
-9. Record the turn in memory, advance the clock, repeat.
+9. Record the turn in memory, acknowledge the events from (1) and the brief in
+   (5), advance the clock, repeat. An event that arrives after those reads,
+   including the one that cuts the wait short, is still pending next turn.
 
 Everything above is written to a JSONL transcript, one record per event, which is
 what the eval runner and any later analysis read.

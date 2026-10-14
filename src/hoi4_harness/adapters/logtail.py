@@ -11,6 +11,7 @@ Pair it with a writer (``--adapter logtail+input``). It observes; it does not ac
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
 
@@ -247,6 +248,14 @@ class LogTailAdapter(GameAdapter):
             )
 
     def read_state(self) -> GameState:
+        """The state now, with every event the loop has not acknowledged yet.
+
+        Reading never drains the queue. It used to, and the clock wait polls
+        through this read: the poll that saw a war declaration ended the wait
+        early and took the event with it, so the loop's next read found nothing
+        and the planner was never woken for the war (#62). Events now leave
+        only through ``acknowledge_events``.
+        """
         self.poll()
         if not self._seen_any:
             raise RuntimeError(
@@ -254,21 +263,25 @@ class LogTailAdapter(GameAdapter):
                 "the 'Emit telemetry now' decision to force a line."
             )
         self._state.events = list(self._pending)
-        self._pending = []
         return self._state
 
     def peek_state(self) -> GameState:
-        """The state now, without draining pending events.
+        """Same as ``read_state``, which no longer drains anything.
 
-        For the input driver's verification polling: an extra read there must
-        not swallow a war declaration before the loop's own read, which is what
-        decides whether to wake the planner.
+        Kept for callers that ask for a non-draining read by name, such as the
+        input driver's verification polling.
         """
-        self.poll()
-        if not self._seen_any:
-            raise RuntimeError("game.log has no LLM Bridge telemetry yet.")
-        self._state.events = list(self._pending)
-        return self._state
+        return self.read_state()
+
+    def acknowledge_events(self, events: Iterable[GameEvent]) -> None:
+        """Drop exactly these events, matched by identity.
+
+        By identity, not by value: two directive raises on the same day can be
+        equal field for field, and acknowledging one must not drop the other.
+        Whatever arrived after the read that returned ``events`` stays queued.
+        """
+        answered = {id(event) for event in events}
+        self._pending = [event for event in self._pending if id(event) not in answered]
 
     def apply(self, call: ActionCall) -> ActionResult:
         return self.unsupported(call)

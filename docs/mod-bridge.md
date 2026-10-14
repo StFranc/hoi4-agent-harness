@@ -59,8 +59,14 @@ Rules the parser holds to, all of them tested in
 - **Fields the mod does not emit yet are declared unknown up front** (research,
   production, construction, fronts, wars, focus).
 - **Only new bytes are read**, and a truncated or rotated log resets the offset.
-- **Events are drained**, not repeated, so one war declaration wakes the planner
-  once.
+- **Events stay queued until the loop has answered them.** No read drains the
+  queue, the clock wait's polls included, so a war declaration that cuts the
+  wait short is still there when the next turn's wake rule looks, and it is in
+  that turn's brief. Before the clock moves on, the loop acknowledges the events
+  its wake rule judged and its brief showed, and only those: one war
+  declaration wakes the planner once, and anything that landed later in the
+  turn waits for the next one. The loop-level check is
+  [`tests/test_logtail_wake.py`](../tests/test_logtail_wake.py).
 
 ## What needs verifying before you trust a run
 

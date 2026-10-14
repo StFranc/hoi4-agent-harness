@@ -29,7 +29,7 @@ from ..config import HarnessConfig
 from ..env import HOI4Env
 from ..observation.builder import snapshot as deepcopy_state
 from ..observation.tokens import count_tokens
-from ..types import ActionCall, ActionResult, GameState
+from ..types import ActionCall, ActionResult, GameEvent, GameState
 from .advisor import Advisor
 from .budget import BudgetGuard
 from .errors import classify, describe
@@ -134,6 +134,9 @@ class AgentLoop:
         self.report = RunReport(transcript_path=str(transcript_path) if transcript_path else None)
         self.run_dir = transcript_path.parent if transcript_path else None
         self._consecutive_errors = 0
+        #: The events this turn answers for: what the wake rule judged, plus
+        #: what the brief showed if the planner woke. See _acknowledge.
+        self._answered: list[GameEvent] = []
         #: One snapshot per turn, for objectives that are about the whole run
         #: rather than where it stopped. Snapshots, not references: adapters
         #: hand back a live GameState that keeps mutating.
@@ -188,6 +191,7 @@ class AgentLoop:
 
         for _ in range(turns):
             state = self.env.read_state()
+            self._answered = list(state.events)
             turn_date = state.date
             at_war = bool(state.wars)
             self.history.append(deepcopy_state(state))
@@ -212,6 +216,7 @@ class AgentLoop:
                 self.transcript.write("handover", **handover.to_dict())
                 if self.progress:
                     self.progress(handover.summary())
+            self._acknowledge()
             state = self.env.advance()
             self.report.turns += 1
             self.report.end_date = state.date
@@ -267,6 +272,10 @@ class AgentLoop:
 
     def _planner_turn(self, reason: str) -> tuple[list[str], int]:
         observation = self.env.observe()
+        # The brief shows the model everything this read returned, which is more
+        # than the wake rule saw if the game ran in between (a player-owned
+        # clock). Copied now: later reads in the turn replace state.events.
+        self._answered += observation.state.events
         # Adapters hand back a live reference to their own GameState, which keeps
         # mutating as this turn's actions run. Capture the date now: journalling
         # with observation.state.date at the end of the turn dated every entry
@@ -468,6 +477,19 @@ class AgentLoop:
             results=[r.to_dict() for r in results],
         )
         return [f"{r.action}{'' if r.ok else ' (rejected)'}" for r in results], 0
+
+    def _acknowledge(self) -> None:
+        """Mark this turn's events answered, before the clock moves on.
+
+        Only these: an adapter that queues events (the log-tail reader) keeps
+        everything else, so a war that lands during the clock wait -- the very
+        event that cuts the wait short -- or while the model is thinking is
+        still there for the next turn's wake rule and brief. Before the
+        advance, not after it: the wait returns at once on a pending critical
+        event, which must be news rather than this turn's own.
+        """
+        self.env.acknowledge_events(self._answered)
+        self._answered = []
 
     def _checkpoint(self) -> None:
         """Persist memory after every turn, not once at the end.

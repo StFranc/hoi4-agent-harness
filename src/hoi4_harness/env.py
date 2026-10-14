@@ -8,6 +8,8 @@ action cap.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from .actions import registry
 from .adapters.base import GameAdapter
 from .config import HarnessConfig
@@ -16,7 +18,7 @@ from .handover import PASS_THROUGH, HandoverQueue, HandoverReport
 from .identifiers import IdentifierIndex
 from .observation import ObservationBuilder
 from .observation.directives import DirectiveTracker
-from .types import ActionCall, ActionResult, GameState, Observation
+from .types import ActionCall, ActionResult, GameEvent, GameState, Observation
 
 
 class HOI4Env:
@@ -52,6 +54,10 @@ class HOI4Env:
 
     def read_state(self) -> GameState:
         return self.adapter.read_state()
+
+    def acknowledge_events(self, events: Iterable[GameEvent]) -> None:
+        """Tell the adapter the loop has answered these events (see GameAdapter)."""
+        self.adapter.acknowledge_events(events)
 
     def observe(self, notes: list[str] | None = None, *, remember: bool = True) -> Observation:
         state = self.adapter.read_state()

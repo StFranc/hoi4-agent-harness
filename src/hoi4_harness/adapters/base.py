@@ -10,9 +10,10 @@ inventing a zero.
 from __future__ import annotations
 
 import abc
+from collections.abc import Iterable
 from dataclasses import dataclass
 
-from ..types import ActionCall, ActionResult, GameState
+from ..types import ActionCall, ActionResult, GameEvent, GameState
 
 
 @dataclass
@@ -35,7 +36,24 @@ class GameAdapter(abc.ABC):
 
     @abc.abstractmethod
     def read_state(self) -> GameState:
-        """Return the current snapshot. Must not block on the game clock."""
+        """Return the current snapshot. Must not block on the game clock.
+
+        Must not consume events either. A turn reads state several times -- the
+        clock wait polls, the brief, verification, the reflexes -- and only one
+        of those reads is the one the wake rule judges. An adapter that queues
+        events keeps each one in ``events`` until the loop passes it to
+        ``acknowledge_events``.
+        """
+
+    def acknowledge_events(self, events: Iterable[GameEvent]) -> None:
+        """The loop has answered these events: stop reporting them.
+
+        Called once a turn, before the clock moves on, with the very event
+        objects the turn's reads returned -- the ones the wake rule judged and
+        the brief showed. An event that arrived after those reads is not among
+        them and stays for the next turn. Default: nothing to do, for adapters
+        that do not queue events.
+        """
 
     @abc.abstractmethod
     def apply(self, call: ActionCall) -> ActionResult:

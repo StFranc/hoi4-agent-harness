@@ -86,7 +86,57 @@ def test_a_war_declaration_arrives_as_a_critical_event(tmp_path):
     adapter = LogTailAdapter(write_log(tmp_path, STATE, EVENT))
     state = adapter.read_state()
     assert [(e.kind, e.severity) for e in state.events] == [("war_declared", "critical")]
-    assert adapter.read_state().events == []      # events are drained, not repeated
+    # Repeated, not drained (#62): the clock wait, the brief and the
+    # verification polls all read, and only the loop knows when it answered.
+    assert [e.kind for e in adapter.read_state().events] == ["war_declared"]
+
+
+def test_an_acknowledged_event_is_not_reported_again(tmp_path):
+    adapter = LogTailAdapter(write_log(tmp_path, STATE, EVENT))
+    adapter.acknowledge_events(adapter.read_state().events)
+    assert adapter.read_state().events == []
+
+
+def test_acknowledging_keeps_what_arrived_after_the_read(tmp_path):
+    adapter = LogTailAdapter(write_log(tmp_path, STATE, EVENT))
+    seen = adapter.read_state().events
+    write_log(tmp_path, "[x]: LLMB|v1|evt|tag=SWE|kind=2|detail=Norway capitulated\n")
+    adapter.read_state()                     # a later read in the same turn sees it
+    adapter.acknowledge_events(seen)
+    assert [e.text for e in adapter.read_state().events] == ["Norway capitulated"]
+
+
+def test_acknowledging_one_of_two_identical_events_keeps_the_other(tmp_path):
+    """Two raises of the same directive on the same day are equal field for
+    field. Matching by value would drop the one nobody has seen."""
+    raised = "[x]: LLMB|v1|evt|tag=SWE|kind=14|detail=protect FIN\n"
+    adapter = LogTailAdapter(write_log(tmp_path, STATE, raised))
+    seen = adapter.read_state().events
+    write_log(tmp_path, raised)
+    assert len(adapter.read_state().events) == 2
+    adapter.acknowledge_events(seen)
+    assert [e.text for e in adapter.read_state().events] == ["protect FIN"]
+
+
+def test_the_clock_wait_does_not_swallow_the_war_that_ends_it(tmp_path):
+    """#62 at adapter level: the wait's own poll used to drain the event that
+    cut it short, so the loop's next read found nothing to wake for."""
+    from hoi4_harness.agent.policy import Policy
+
+    def on(day):
+        return STATE.replace("1936.2.14", day)
+
+    adapter = LogTailAdapter(write_log(tmp_path, on("1936.1.1")), poll_seconds=0)
+    adapter.read_state()                                   # top of the turn
+    write_log(tmp_path, on("1936.1.3"), EVENT, on("1936.1.5"))   # the game runs
+    waited = adapter.advance(7)
+    assert waited.date == "1936-01-05"
+    assert [e.kind for e in waited.events] == ["war_declared"]
+
+    following = adapter.read_state()                       # the loop's next read
+    assert [e.kind for e in following.events] == ["war_declared"]
+    decision = Policy().should_wake(following, 0)
+    assert decision.wake and decision.reason == "critical event: Germany declared war"
 
 
 def test_a_log_with_no_telemetry_says_so(tmp_path):

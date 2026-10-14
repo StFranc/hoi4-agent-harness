@@ -12,7 +12,9 @@ tooling. That is what ``clock_owner`` decides.
 
 from __future__ import annotations
 
-from ..types import ActionCall, ActionResult, GameState
+from collections.abc import Iterable
+
+from ..types import ActionCall, ActionResult, GameEvent, GameState
 from .base import AdapterInfo, GameAdapter
 from .clock import wait_for_days
 
@@ -53,6 +55,10 @@ class CompositeAdapter(GameAdapter):
 
     def read_state(self) -> GameState:
         return self.reader.read_state()
+
+    def acknowledge_events(self, events: Iterable[GameEvent]) -> None:
+        # The reader is where events come from, so it is where they queue.
+        self.reader.acknowledge_events(events)
 
     def apply(self, call: ActionCall) -> ActionResult:
         return self.writer.apply(call)
