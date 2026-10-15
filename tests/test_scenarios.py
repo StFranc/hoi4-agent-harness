@@ -217,6 +217,28 @@ def test_rearmament_race_rewards_sequencing_under_the_deadline():
     assert run_card(SCENARIOS["rearmament_race"], _rearm).score == 1.0
 
 
+def _from(date, decide):
+    """The same policy, started late: nothing at all before ``date``."""
+    return lambda state: decide(state) if state.date >= date else []
+
+
+@pytest.mark.parametrize("start", ["1938-03-01", "1938-06-01"])
+def test_rearmament_race_gives_no_credit_for_rearming_after_the_deadline(start):
+    # The objectives describe what exists when the war arrives. Scored any
+    # later, rearming three months late (or after the war began) still made
+    # the targets and passed (#68).
+    scenario = SCENARIOS["rearmament_race"]
+    late = run_card(scenario, _from(start, _rearm))
+    assert late.score <= load()["rearmament_race"]["score"]
+    assert late.score <= run_card(scenario, lambda state: []).score
+
+
+def test_rearmament_race_is_scored_at_its_own_war_date():
+    scenario = SCENARIOS["rearmament_race"]
+    final, _ = play(scenario, lambda state: [])
+    assert final.date == "1938-06-01"
+
+
 def _diagnose(state):
     """Recovery: rebuild the infantry line, start research, build something."""
     calls = []

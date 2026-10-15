@@ -238,7 +238,10 @@ REARMAMENT_RACE = Scenario(
     title="Rearm before the war you know about",
     country="GER",
     start="1937-01-01",
-    until="1939-09-01",
+    #: The war date itself, not war_readiness's 1939-09-01: every objective is
+    #: a claim about what exists when the war arrives, and scored later they
+    #: credit an army built after the deadline the briefing sets (#68).
+    until="1938-06-01",
     max_turns=600,
     briefing=(
         "The war begins on 1938-06-01: about eighty weeks away. You start with six "
