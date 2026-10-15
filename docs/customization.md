@@ -51,6 +51,7 @@ you at run time.
 |---|---|
 | `days_per_turn` | in-game days between scheduled reviews |
 | `wake_on_no_focus`, `wake_on_free_research_slot` | opportunity wakes; turn off for a strictly scheduled run |
+| `wake_on_losing_ground` | a front that starts losing ground; fires on the onset, so a front that stays losing wakes the model once and the scheduled review covers the rest |
 | `wake_on_encirclement`, `wake_on_supply_collapse`, `wake_on_capital_threat`, `wake_on_ally_capitulation`, `wake_on_front_quiet` | wartime wakes, each on the onset of its condition; only consulted while at war |
 | `planner_enabled` | `--no-llm` never wakes the model at all: reflexes only, zero model calls. `eval --no-llm --write-baseline` records those scores as the baseline every score card is reported against |
 | `reflex_enabled` | `--no-reflex` makes the model decide everything, including the boring parts |

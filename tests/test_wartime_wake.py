@@ -124,3 +124,90 @@ def test_the_loop_hands_the_policy_last_turns_state():
     assert seen[0] is None
     assert seen[1] is not None and seen[1].date == "1936-01-01"
     assert seen[2].date == "1936-01-08"
+
+
+# --- losing ground (#70): onset, not the standing condition -----------------
+
+def test_a_front_starting_to_lose_ground_wakes_critically():
+    decision = _wake(_at_war(pressure="losing_ground"), _at_war())
+    assert decision.wake and decision.urgency == "critical"
+    assert decision.reason == "losing ground on karelia"
+
+
+def test_a_front_that_stays_losing_does_not_wake_every_turn():
+    assert not _wake(_at_war(pressure="losing_ground"), _at_war(pressure="losing_ground")).wake
+
+
+def test_a_front_that_is_losing_at_the_first_look_wakes():
+    # No last turn to compare with: the model has not heard about it yet.
+    assert _wake(_at_war(pressure="losing_ground"), None).wake
+
+
+def test_a_front_that_recovers_and_turns_again_wakes_again():
+    assert _wake(_at_war(pressure="losing_ground"), _at_war(pressure="advancing")).wake
+
+
+def test_losing_ground_can_be_switched_off():
+    after, before = _at_war(pressure="losing_ground"), _at_war()
+    assert not _wake(after, before, wake_on_losing_ground=False).wake
+    config = HarnessConfig().merge({"wake_on_losing_ground": False})
+    assert config.wake_on_losing_ground is False
+
+
+def test_a_front_losing_for_several_turns_wakes_the_planner_once():
+    """Through the real loop: defensive_war starts on a losing front and the
+    front stays losing. With only the schedule and the alarms on, the losing
+    front is worth one wake, not one per turn."""
+    from hoi4_harness.adapters.mock import MockAdapter
+    from hoi4_harness.agent.llm import build_llm
+    from hoi4_harness.agent.loop import AgentLoop
+    from hoi4_harness.config import LLMConfig
+    from hoi4_harness.env import HOI4Env
+    from hoi4_harness.eval.scenarios import SCENARIOS
+
+    scenario = SCENARIOS["defensive_war"]
+    config = HarnessConfig(adapter="mock", planner=LLMConfig(provider="scripted"),
+                           wake_on_free_research_slot=False, wake_on_no_focus=False)
+    adapter = MockAdapter(seed=scenario.seed, country=scenario.country,
+                          start=scenario.start, start_state=scenario.start_state)
+    env = HOI4Env(adapter, config)
+    env.reset()
+    loop = AgentLoop(env, planner=build_llm(config.planner), config=config)
+
+    seen = []
+
+    class Spy(Policy):
+        def should_wake(self, state, days_since_planner, previous=None):
+            decision = super().should_wake(state, days_since_planner, previous)
+            seen.append((state, decision))
+            return decision
+
+    loop.policy = Spy(days_per_turn=config.days_per_turn, wake_on_free_research_slot=False,
+                      wake_on_no_focus=False)
+    loop.run(8)
+
+    losing_turns = [s for s, _ in seen
+                    if any(f.pressure == "losing_ground" for f in s.fronts)]
+    assert len(losing_turns) >= 5          # the front stays losing throughout
+    losing_wakes = [d for _, d in seen if d.wake and "losing ground" in d.reason]
+    assert len(losing_wakes) == 1, [d.reason for _, d in seen]
+    assert "losing ground" in seen[0][1].reason
+    assert not all(d.wake for _, d in seen)
+
+
+def test_the_loop_passes_the_losing_ground_flag_to_the_policy():
+    from hoi4_harness.adapters.mock import MockAdapter
+    from hoi4_harness.agent.loop import AgentLoop
+    from hoi4_harness.env import HOI4Env
+
+    config = HarnessConfig(planner_enabled=False, wake_on_losing_ground=False)
+    loop = AgentLoop(HOI4Env(MockAdapter(), config), planner=None, config=config)
+    assert loop.policy.wake_on_losing_ground is False
+
+
+def test_measure_groups_losing_ground_wakes_apart_from_a_front_going_quiet():
+    from hoi4_harness.eval.measure import _reason_key
+
+    assert _reason_key("losing ground on center") == "losing ground on"
+    assert _reason_key("losing ground on karelia") == "losing ground on"
+    assert _reason_key("front center went quiet") == "front"

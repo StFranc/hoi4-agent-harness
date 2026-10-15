@@ -152,7 +152,7 @@ def measure(path: str | Path) -> Measurement:
 def _reason_key(reason: str) -> str:
     """Group wake reasons by rule, not by the specifics each one carries."""
     for prefix in ("critical event", "encirclement forming", "supply collapsed",
-                   "the capital is threatened", "an ally", "front "):
+                   "the capital is threatened", "an ally", "losing ground on", "front "):
         if reason.startswith(prefix):
             return prefix.strip()
     if "research slot" in reason:

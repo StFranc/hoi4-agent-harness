@@ -157,6 +157,9 @@ class HarnessConfig:
     full_brief_every: int = 8
     wake_on_free_research_slot: bool = True
     wake_on_no_focus: bool = True
+    # A front starting to lose ground. Like the wartime rules below it fires on
+    # onset: a front that stays losing wakes the model once, not every turn.
+    wake_on_losing_ground: bool = True
     # Wartime wake rules. Each fires on the onset of its condition, never on the
     # condition standing, so a long siege does not wake the model every turn.
     wake_on_encirclement: bool = True

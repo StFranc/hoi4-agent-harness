@@ -116,6 +116,7 @@ class AgentLoop:
             wake_on_capital_threat=self.config.wake_on_capital_threat,
             wake_on_ally_capitulation=self.config.wake_on_ally_capitulation,
             wake_on_front_quiet=self.config.wake_on_front_quiet,
+            wake_on_losing_ground=self.config.wake_on_losing_ground,
             reflex_delegate=self.config.reflex_delegate,
         )
         self.system = build_system(

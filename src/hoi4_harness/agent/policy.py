@@ -54,6 +54,7 @@ class Policy:
         wake_on_capital_threat: bool = True,
         wake_on_ally_capitulation: bool = True,
         wake_on_front_quiet: bool = True,
+        wake_on_losing_ground: bool = True,
         reflex_delegate: bool = False,
     ):
         self.days_per_turn = days_per_turn
@@ -64,6 +65,7 @@ class Policy:
         self.wake_on_capital_threat = wake_on_capital_threat
         self.wake_on_ally_capitulation = wake_on_ally_capitulation
         self.wake_on_front_quiet = wake_on_front_quiet
+        self.wake_on_losing_ground = wake_on_losing_ground
         self.reflex_delegate = reflex_delegate
         self.reflex_enabled = reflex_enabled
         self.planner_enabled = planner_enabled
@@ -101,8 +103,10 @@ class Policy:
         if self.wake_on_free_research_slot and free_slots and state.known("research"):
             return WakeDecision(True, f"{free_slots} research slot(s) idle", "opportunity")
 
-        if state.fronts and any(f.pressure == "losing_ground" for f in state.fronts):
-            return WakeDecision(True, "a front is losing ground", "critical")
+        if self.wake_on_losing_ground:
+            losing = _started_losing(state, previous)
+            if losing:
+                return WakeDecision(True, f"losing ground on {losing}", "critical")
 
         if state.wars and self.wake_on_front_quiet and previous is not None:
             quiet = _went_quiet(state, previous)
@@ -225,6 +229,22 @@ class Policy:
                 )
 
         return actions
+
+
+def _started_losing(state: GameState, previous: GameState | None) -> str | None:
+    """A front that is losing ground now and was not last turn.
+
+    Onset, like the wartime alarms: a front that stays losing for months wakes
+    the planner once, when it turns, and the scheduled review covers the rest.
+    A front with no last turn -- the first look, or a front that just opened --
+    counts as an onset, since the model has not heard about it yet.
+    """
+    before = {f.name: f for f in previous.fronts} if previous is not None else {}
+    for front in state.fronts:
+        was = before.get(front.name)
+        if front.pressure == "losing_ground" and (was is None or was.pressure != "losing_ground"):
+            return front.name
+    return None
 
 
 def _went_quiet(state: GameState, previous: GameState) -> str | None:

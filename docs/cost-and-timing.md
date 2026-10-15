@@ -34,11 +34,12 @@ The harness splits control:
   empty construction queue, reassigns idle military factories, and nothing that
   requires judgement. Free and instant.
 - **Planner** — the model. Woken on: a critical event, no national focus running,
-  an idle research slot, a front losing ground, or the scheduled review. At war,
-  also on the *onset* of an encirclement, a supply collapse on a front that was
-  supplied last turn, the capital coming under threat, an ally capitulating or
-  leaving the war, and a front going quiet. Onset, not condition: a pocket wakes
-  the model when it opens or grows, not every turn it stands.
+  an idle research slot, the *onset* of a front losing ground, or the scheduled
+  review. At war, also on the *onset* of an encirclement, a supply collapse on a
+  front that was supplied last turn, the capital coming under threat, an ally
+  capitulating or leaving the war, and a front going quiet. Onset, not
+  condition: a pocket wakes the model when it opens or grows, and a front wakes
+  it when it starts losing ground, not every turn either one stands.
 
 Widening that rule is how a run gets expensive. It is deliberately one small
 function so the cost of a change is visible.
@@ -113,7 +114,7 @@ the transcript has them and dashes when it does not.
 | peacetime, default | peace | 1,339 | 105 | 2.4 | 50 (133 / 37) | 151 | 1,531 + 184 |
 | peacetime, schedule only | peace | 1,346 | 75 | 1.7 | 56 (131 / 45) | 143 | 1,531 + 189 |
 | wartime, default | war | 854 | 66 | 2.4 | 70 (175 / 53) | 230 | 1,531 + 233 |
-| wartime, schedule + alarms | war | 854 | 49 | 1.7 | 77 (195 / 54) | 253 | 1,531 + 233 |
+| wartime, schedule + alarms | war | 861 | 49 | 1.7 | 76 (195 / 53) | 253 | 1,531 + 232 |
 
 What that says:
 
@@ -127,9 +128,20 @@ What that says:
   per-turn message by a quarter (184 → 233), because fronts are capped at three
   lines. The wake rate is flat (2.4 → 2.4, and 1.7 → 1.7 with only the schedule
   and the wartime alarms), because every wartime rule fires on the onset of its
-  condition. In the schedule-and-alarms run the alarms account for 5 of 49
-  wartime wakes: three critical events, the supply collapse in the October mud,
-  and the losing front after the counteroffensive.
+  condition. In the schedule-and-alarms run the alarms account for 4 of 49
+  wartime wakes: three critical events and the supply collapse in the October
+  mud. The center starts losing ground on the turn the December
+  counteroffensive's critical event already wakes the model, so that onset costs
+  nothing extra.
+- **A front that stays losing does not raise it either.** The 1939–1941 window
+  ends 26 days after its only sustained losing front begins (the center, from
+  1941-12-05), which is too short to show anything. Extended to 1942-06-30 with
+  the schedule and the alarms only, the 210 days after the counteroffensive wake
+  1.7 times a month, the same as the war before them (1.7). Until the
+  losing-ground rule fired on onset it woke on every one of those 18 turns, 15 of
+  them for the losing front, at 2.6 a month, and lifted the whole war to 1.9.
+  Under the default rules the extended war stays at 2.4 either way, because the
+  scripted planner's idle research slot already wakes most turns.
 - **What the estimate got right:** the order of magnitude, and that the prefix is
   most of the bill.
 
@@ -186,8 +198,9 @@ Honest failure modes, since they decide whether the numbers above survive contac
   they need a decision (losing ground, a pocket forming, the capital threatened,
   supply failing, an attack), and folds the rest into one line that still says
   whether anything in the fold is in trouble. A synthetic twelve-front war renders
-  as a ~450-character brief. Measured over a scripted 1939–1941 (above), neither
-  brief size nor wake rate compounded; a real game is what would falsify that.
+  as a ~450-character brief. Measured over a scripted 1939–1941 (above), and
+  that war extended to mid-1942 with a front losing on every turn, neither brief
+  size nor wake rate compounded; a real game is what would falsify that.
 - **Screen-based observation.** A vision call per observation is 1–2k image tokens
   and cannot be cached across turns. It is for what numbers cannot express, not
   for routine ticks.
