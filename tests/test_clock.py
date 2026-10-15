@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import copy
 import datetime as dt
+
+import pytest
 
 from hoi4_harness.adapters.base import AdapterInfo, GameAdapter
 from hoi4_harness.adapters.clock import days_between, wait_for_days
 from hoi4_harness.adapters.composite import CompositeAdapter
+from hoi4_harness.adapters.input_driver import InputDriverAdapter
 from hoi4_harness.adapters.mock import MockAdapter
+from hoi4_harness.agent.llm.base import LLMResponse, ToolCall, Usage
+from hoi4_harness.agent.llm.scripted import ScriptedClient
+from hoi4_harness.agent.loop import AgentLoop
 from hoi4_harness.config import HarnessConfig
 from hoi4_harness.env import HOI4Env
 from hoi4_harness.types import ActionCall, ActionResult, GameEvent, GameState
@@ -183,3 +190,121 @@ def test_speed_actions_are_still_rejected_if_one_slips_through():
     env = HOI4Env(MockAdapter(), HarnessConfig(clock_owner="player", dry_run=False))
     result = env.act(ActionCall("set_game_speed", {"speed": 5}))
     assert not result.ok and result.error_kind == "unsupported"
+
+
+# --- advance_time: one clock, one rule (#65) --------------------------------
+# advance_time ends a planner turn. Through the input driver it is a no-op that
+# hands the clock back, and the harness then advances days_per_turn. The mock
+# used to tick the requested days itself as well, so a turn there spanned
+# N + days_per_turn, and the harness's advance straight after could wipe a
+# critical event that had cut the first one short.
+
+
+class RunningGame(GameAdapter):
+    """A mock world seen through a reader: the date moves only while the game
+    is unpaused, one day per poll, the way a real log tail sees it."""
+
+    supported_actions = frozenset()
+
+    def __init__(self, world: MockAdapter):
+        self.world = world
+        self.running = False
+        self._polled = False
+
+    def info(self):
+        return AdapterInfo("running-game", readable=True, writable=False, clock_control=False)
+
+    def read_state(self) -> GameState:
+        if self.running and self._polled:
+            self.world.advance(1)
+        self._polled = True
+        return copy.deepcopy(self.world.read_state())
+
+    def apply(self, call):
+        return self.unsupported(call)
+
+    def advance(self, days):
+        raise NotImplementedError
+
+
+class DriverOnRunningGame(InputDriverAdapter):
+    """The real input driver in dry run, its pause key wired to the fake game."""
+
+    def __init__(self, game: RunningGame):
+        super().__init__(dry_run=True, gui=object())
+        self.game = game
+
+    def pause(self) -> None:
+        super().pause()
+        self.game.running = False
+
+    def resume(self, speed: int = 3) -> None:
+        super().resume(speed)
+        self.game.running = True
+        self.game._polled = False
+
+
+def advance_time(days: int) -> LLMResponse:
+    return LLMResponse(
+        tool_calls=[ToolCall("t", "advance_time", {"days": days, "reason": "nothing to do"})],
+        stop_reason="tool_use",
+        usage=Usage(10, 10),
+    )
+
+
+def driver_on_running_game() -> CompositeAdapter:
+    game = RunningGame(MockAdapter(seed=3))
+    return CompositeAdapter(game, DriverOnRunningGame(game), poll_seconds=0)
+
+
+def planner_turn_span(adapter: GameAdapter, days: int) -> int:
+    """Game days one planner turn covers when the model ends it with
+    advance_time(days). The first turn of a run always wakes the planner."""
+    config = HarnessConfig(adapter="mock", turns=1)
+    env = HOI4Env(adapter, config)
+    env.reset()
+    loop = AgentLoop(env=env, planner=ScriptedClient(script=[advance_time(days)]), config=config)
+    report = loop.run(1)
+    assert report.planner_calls == 1
+    assert report.actions_ok == 1           # the advance_time call itself
+    return days_between(report.start_date, report.end_date)
+
+
+@pytest.mark.parametrize("days", [1, 7, 14, 30, 90])
+def test_65_a_planner_turn_spans_the_same_days_on_the_mock_as_through_the_input_driver(days):
+    through_the_driver = planner_turn_span(driver_on_running_game(), days)
+    on_the_mock = planner_turn_span(MockAdapter(seed=3), days)
+    assert through_the_driver == HarnessConfig().days_per_turn
+    assert on_the_mock == through_the_driver
+
+
+def test_65_a_second_advance_does_not_wipe_the_critical_event_that_stopped_the_first():
+    adapter = MockAdapter(seed=1, start="1939-08-25")
+    adapter.advance(90)                     # stops on 1939-09-01, the invasion
+    adapter.advance(7)                      # nobody has looked yet
+    events = adapter.read_state().events
+    assert any(e.severity == "critical" and "Poland" in e.text for e in events)
+    # Once read, they are gone on the next advance, and the old critical event
+    # does not stop the new one on its first day.
+    state = adapter.advance(7)
+    assert not any("Poland" in e.text for e in state.events)
+    assert state.date == "1939-09-15"
+
+
+def test_65_sweden_from_1939_08_20_wakes_on_the_polish_invasion_while_calling_advance_time_14():
+    config = HarnessConfig(adapter="mock", turns=6,
+                           wake_on_free_research_slot=False, wake_on_no_focus=False)
+    env = HOI4Env(MockAdapter(seed=3, start="1939-08-20"), config)
+    env.reset()
+    loop = AgentLoop(env=env, planner=ScriptedClient(script=[advance_time(14)] * 6),
+                     config=config)
+    reasons: list[str] = []
+    original = loop._planner_turn
+
+    def recording(reason):
+        reasons.append(reason)
+        return original(reason)
+
+    loop._planner_turn = recording
+    loop.run(6)
+    assert any("critical" in r and "Poland" in r for r in reasons), reasons

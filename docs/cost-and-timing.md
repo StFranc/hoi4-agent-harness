@@ -21,7 +21,7 @@ the moment a critical event fires.
 
 Speed 5 on a fast machine runs roughly a game-week in a couple of seconds, so a
 1936–1939 campaign at weekly reviews is a few minutes of game time plus however
-long the model takes across ~105 wakes (measured; see below).
+long the model takes across ~150 wakes (measured; see below).
 
 ## 2. Most game-days are not decisions
 
@@ -110,26 +110,34 @@ the transcript has them and dashes when it does not.
 
 | campaign, wake rules | phase | game days | wakes | wakes / month | brief mean (full / delta) | brief max | request: prefix + turn |
 |---|---|---|---|---|---|---|---|
-| peacetime, default | peace | 1,339 | 105 | 2.4 | 50 (133 / 37) | 151 | 1,531 + 184 |
-| peacetime, schedule only | peace | 1,346 | 75 | 1.7 | 56 (131 / 45) | 143 | 1,531 + 189 |
-| wartime, default | war | 854 | 66 | 2.4 | 70 (175 / 53) | 230 | 1,531 + 233 |
-| wartime, schedule + alarms | war | 854 | 49 | 1.7 | 77 (195 / 54) | 253 | 1,531 + 233 |
+| peacetime, default | peace | 1,339 | 149 | 3.4 | 49 (139 / 36) | 164 | 1,531 + 178 |
+| peacetime, schedule only | peace | 1,339 | 96 | 2.2 | 56 (138 / 44) | 156 | 1,531 + 191 |
+| wartime, default | war | 854 | 100 | 3.6 | 68 (198 / 47) | 262 | 1,531 + 220 |
+| wartime, schedule + alarms | war | 854 | 65 | 2.3 | 76 (198 / 56) | 263 | 1,531 + 233 |
+
+These were re-measured after #65. The earlier table (105 / 75 / 66 / 49 wakes)
+came from a mock on which a planner turn that ended in `advance_time(N)` ran
+N + `days_per_turn` days, so planner turns were longer than the harness's own;
+measured on the corrected clock, the wake counts are 28-52% higher. On the mock, as through the input driver,
+`advance_time` now only ends the turn, and the harness moves the clock once.
 
 What that says:
 
-- **A wake sends ~1.75k tokens, not ~2.2k.** ~1.5k of it is the cacheable
+- **A wake sends ~1.7k tokens, not ~2.2k.** ~1.5k of it is the cacheable
   prefix, so the design's premise holds: the part that changes turn to turn is
   ~200 tokens, and most of that is the memory block and framing, not the brief.
-- **1936–1939 is ~105 wakes, not ~190** — the estimate was ~1.8x high. At 1.75k
-  input a wake that is ~185k input tokens for the campaign, ~160k of them
+- **1936–1939 is ~150 wakes, not ~190** — the estimate was ~1.3x high. At 1.7k
+  input a wake that is ~255k input tokens for the campaign, ~230k of them
   cacheable, against the ~400k estimated.
-- **War did not compound.** The full brief grows by a third (133 → 175) and the
-  per-turn message by a quarter (184 → 233), because fronts are capped at three
-  lines. The wake rate is flat (2.4 → 2.4, and 1.7 → 1.7 with only the schedule
-  and the wartime alarms), because every wartime rule fires on the onset of its
-  condition. In the schedule-and-alarms run the alarms account for 5 of 49
-  wartime wakes: three critical events, the supply collapse in the October mud,
-  and the losing front after the counteroffensive.
+- **War did not compound.** The full brief grows by about two fifths
+  (139 → 198) and the per-turn message by a quarter (178 → 220), because fronts
+  are capped at three lines. The wake rate is close to flat (3.4 → 3.6, and
+  2.2 → 2.3 with only the schedule and the wartime alarms), because every
+  wartime rule fires on the onset of its condition. In the schedule-and-alarms
+  run the alarms account for 7 of 65 wartime wakes: three critical events (the
+  invasion of Poland, the war with the Soviet Union, the December
+  counteroffensive), the supply collapse in the October mud, and three
+  losing-front wakes on consecutive turns after the counteroffensive.
 - **What the estimate got right:** the order of magnitude, and that the prefix is
   most of the bill.
 

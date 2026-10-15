@@ -120,6 +120,10 @@ class MockAdapter(GameAdapter):
         )
         self.scripted_events = dict(SCRIPTED_EVENTS)
         self._pending: list[GameEvent] = []
+        #: Whether ``read_state()`` has shown ``_pending`` since the last advance. An
+        #: advance only clears events that have been read, so two advances in a
+        #: row cannot wipe the critical event that stopped the first.
+        self._pending_read = False
         self._advisor_pp_bonus = 0.0
         self._trades: dict[str, int] = {}
         self._attrition: dict[str, float] = {}
@@ -176,6 +180,10 @@ class MockAdapter(GameAdapter):
         )
 
     def read_state(self) -> GameState:
+        self._pending_read = True
+        return self._snapshot()
+
+    def _snapshot(self) -> GameState:
         self.state.date = self.date.isoformat()
         self.state.events = list(self._pending)
         return self.state
@@ -193,15 +201,24 @@ class MockAdapter(GameAdapter):
         self.state.speed = max(1, min(5, speed))
 
     def advance(self, days: int) -> GameState:
-        """Tick forward, stopping early on a critical event."""
-        self._pending = []
+        """Tick forward, stopping early on a critical event.
+
+        Events are cleared only once they have been read through
+        ``read_state()``. The state this returns does not count as a read: a
+        caller that advances again without looking still finds the earlier
+        events waiting, rather than losing them to the second advance.
+        """
+        if self._pending_read:
+            self._pending = []
+            self._pending_read = False
+        first_new = len(self._pending)
         for _ in range(max(0, days)):
             self.date += dt.timedelta(days=1)
             self._tick_one_day()
-            if any(e.severity == "critical" for e in self._pending):
+            if any(e.severity == "critical" for e in self._pending[first_new:]):
                 break
         self.pause()
-        return self.read_state()
+        return self._snapshot()
 
     # --- simulation ----------------------------------------------------------
 
@@ -575,9 +592,12 @@ class MockAdapter(GameAdapter):
         return self._ok(call, f"Speed set to {self.state.speed}.")
 
     def _do_advance_time(self, call: ActionCall) -> ActionResult:
-        days = int(call.arguments.get("days", 7))
-        self.advance(days)
-        return self._ok(call, f"Advanced to {self.date.isoformat()}.", date=self.date.isoformat())
+        # The same contract as the input driver: advance_time ends the turn and
+        # hands the clock back, and the harness then advances it once, by
+        # days_per_turn. Ticking here as well made a mock turn span N +
+        # days_per_turn days, and the harness's own advance straight after
+        # could run past a critical event that had cut this one short.
+        return self._ok(call, "Clock handed back to the harness.", date=self.date.isoformat())
 
     def _do_note(self, call: ActionCall) -> ActionResult:
         return self._ok(call, "Noted.", text=call.arguments.get("text", "")[:200])

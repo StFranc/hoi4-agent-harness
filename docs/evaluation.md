@@ -37,7 +37,7 @@ reports the median with its range:
 
 ```
 $ hoi4-harness eval economy_ramp --seeds 5
-economy_ramp: median 0.25 [0.25-0.25] over 5 seeds (baseline 0.25, +0.00)
+economy_ramp: median 0.50 [0.50-0.50] over 5 seeds (baseline 0.25, +0.25)
   [0/5] civ_factories_20
   [5/5] stability_held
   ...

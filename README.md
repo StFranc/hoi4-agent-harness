@@ -45,9 +45,9 @@ Everything else follows from those two:
 | Hard budget ceilings | Calls, tokens and dollars. On exhaustion the loop drops to the reflex layer and keeps playing rather than stopping. |
 
 Measured against the mock with a scripted planner (`hoi4-harness measure`):
-1936→1939 is ~105 wakes of ~1.75k input tokens each, ~1.5k of them the cacheable
-prefix — roughly 185k input tokens for the campaign. A scripted 1939–1941 war
-grows the full brief by a third and leaves the wake rate flat. Those are the
+1936→1939 is ~150 wakes of ~1.7k input tokens each, ~1.5k of them the cacheable
+prefix — roughly 255k input tokens for the campaign. A scripted 1939–1941 war
+grows the full brief by about two fifths and leaves the wake rate close to flat. Those are the
 harness's numbers against a stand-in game, with characters/4 as the token count;
 a real game and a real model are what would confirm them. Method, caveats and
 the table are in [docs/cost-and-timing.md](docs/cost-and-timing.md).
