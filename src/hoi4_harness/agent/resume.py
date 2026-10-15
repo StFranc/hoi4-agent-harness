@@ -30,6 +30,9 @@ class ResumeState:
     actions_failed: int = 0
     llm_errors: int = 0
     usage: Usage = field(default_factory=Usage)
+    #: The figure from the last ``run_end`` record, rounded as it was written.
+    #: Only a clean end writes one, so this misses every segment that crashed;
+    #: the loop re-prices ``usage`` instead of trusting it.
     usd: float = 0.0
     start_date: str = ""
     last_date: str = ""

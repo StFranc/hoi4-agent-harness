@@ -183,6 +183,77 @@ def test_resuming_carries_spend_forward_rather_than_doubling_the_budget(tmp_path
     assert second_report.resumed_from
 
 
+# --- #67 dollars survive a crash, not only a clean end -----------------------
+
+def _priced(max_usd=None):
+    from hoi4_harness.config import BudgetConfig
+
+    return BudgetConfig(usd_per_m_input=3.0, usd_per_m_output=15.0, max_usd=max_usd)
+
+
+def _kill_on_turn(loop, turn):
+    """Make the env die like Ctrl-C does: mid-run, so no run_end is written."""
+    real_advance = loop.env.advance
+
+    def advance():
+        if loop.report.turns + 1 == turn:
+            raise KeyboardInterrupt
+        return real_advance()
+
+    loop.env.advance = advance
+
+
+def _resume(first, budget):
+    config = HarnessConfig(adapter="mock", planner=LLMConfig(provider="scripted"),
+                           budget=budget)
+    return AgentLoop(
+        env=HOI4Env(MockAdapter(seed=5), config),
+        planner=ScriptedClient(),
+        config=config,
+        transcript_path=first.transcript.path,
+        resume=True,
+    )
+
+
+def _kinds(path):
+    return [json.loads(line)["kind"]
+            for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def test_67_resume_after_a_crash_restores_dollar_spend(tmp_path):
+    first = build(tmp_path, ScriptedClient(), name="campaign", budget=_priced())
+    _kill_on_turn(first, 20)
+    with pytest.raises(KeyboardInterrupt):
+        first.run(30)
+    spent = first.budget.spend.usd
+    assert spent > 0
+    assert "run_end" not in _kinds(first.transcript.path)
+
+    second = _resume(first, _priced(max_usd=spent / 2))
+    assert second.budget.spend.calls == first.budget.spend.calls
+    assert second.budget.spend.usd == pytest.approx(spent)
+    assert second.budget.why_blocked() == f"spend ceiling reached (${spent / 2:.2f})"
+    # And the resumed run honours it: no further model calls.
+    report = second.run(5)
+    assert report.planner_calls == first.budget.spend.calls
+
+
+def test_67_a_clean_segment_then_a_crash_keeps_both_segments_dollars(tmp_path):
+    first = build(tmp_path, ScriptedClient(), name="campaign", budget=_priced())
+    first.run(5)
+    clean_end = first.budget.spend.usd
+
+    second = _resume(first, _priced())
+    _kill_on_turn(second, second.report.turns + 15)
+    with pytest.raises(KeyboardInterrupt):
+        second.run(30)
+    spent = second.budget.spend.usd
+    assert spent > clean_end
+
+    third = _resume(first, _priced())
+    assert third.budget.spend.usd == pytest.approx(spent)
+
+
 def test_resuming_appends_to_the_transcript_instead_of_truncating_it(tmp_path):
     first = build(tmp_path, ScriptedClient(), name="campaign")
     first.run(4)

@@ -149,7 +149,10 @@ class AgentLoop:
         """Carry forward what the interrupted run knew.
 
         Spend is restored too, so a resumed run cannot quietly double its budget
-        by forgetting what it already spent.
+        by forgetting what it already spent. Dollars are re-priced from the
+        restored token usage rather than read from a ``run_end`` record: a run
+        that crashed or was killed never wrote one, and resuming is mostly for
+        exactly those runs.
         """
         state = rebuild(transcript_path)
         if not state.records:
@@ -165,7 +168,7 @@ class AgentLoop:
         self.report.resumed_from = str(transcript_path)
         self.budget.spend.calls = state.planner_calls
         self.budget.spend.usage = state.usage
-        self.budget.spend._usd = state.usd
+        self.budget.spend._usd = self.budget.price(state.usage)
         self.env.turn = state.turns
         self.transcript.write("resumed", **{"summary": state.summary(), "records": state.records})
 

@@ -108,7 +108,9 @@ turn count, spend, the agent's own journal, and the turn digest. Reconstruction
 tolerates a transcript that was truncated mid-write, since that is the normal
 shape of a file written by a process that died. Resuming appends to the same
 transcript rather than truncating it, and carries spend forward -- a resumed run
-cannot quietly get a second budget.
+cannot quietly get a second budget. Dollars are re-priced from the restored
+token usage, not read from a `run_end` record, since a run that crashed never
+wrote one.
 
 Note what resume does *not* do: it restores what the *harness* knew, not the
 game. The mock's world is gone when the process dies; a live adapter re-observes
