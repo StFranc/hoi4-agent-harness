@@ -94,6 +94,19 @@ does nothing cannot reset its clock. This is also what catches #7's silent
 failure: a directive aimed at the wrong country reads NO OBSERVABLE CHANGE
 instead of looking identical to one that works.
 
+That only holds where the reader can see fronts and wars. The log-tail reader
+cannot (the mod does not emit them), so there every footprint is empty and "no
+change" would be a claim nobody measured. A part that was unknown when the
+directive was raised, or is unknown now, is not compared, and when nothing
+comparable is left the line says so instead:
+
+```
+  invade POL, raised 21d ago: effect not observable with this reader (fronts and wars unknown)
+```
+
+On that reader the line cannot tell a working directive from a misdirected one;
+it just no longer pretends to.
+
 ### Theaters
 
 A theater is a **front, by name** — the cheapest definition that can express the

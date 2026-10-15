@@ -14,9 +14,16 @@ that reports them against that baseline:
 * whether this country is at war with the target;
 * whether the target is fighting on this country's side.
 
-These are crude and adapter-agnostic on purpose: they read only fields every
-adapter either fills or marks unknown. "No observable change after 21 days" is
-the line this exists to produce.
+These are crude and adapter-agnostic on purpose: they read only ``fronts`` and
+``wars``, which every adapter either fills or marks unknown. "No observable
+change after 21 days" is the line this exists to produce -- but only where the
+reader can see those fields. The log-tail reader cannot see fronts or wars, and
+there a baseline of zeros compared with a current state of zeros says nothing
+about the AI; asserting "no change" would tell the agent its directives do
+nothing when the truth is that nobody can tell. So each footprint carries what
+was known when it was taken, and a part that is unknown at the baseline or now
+is never compared: if nothing comparable is left, the line says the effect is
+not observable with this reader.
 """
 
 from __future__ import annotations
@@ -35,6 +42,11 @@ class Footprint:
     divisions: int
     at_war: bool
     allied: bool
+    #: Whether the reader could see ``state.fronts`` (fronts, divisions) and
+    #: ``state.wars`` (at_war, allied) when this footprint was taken. An
+    #: unknown field reads as empty, so its zeros are not a measurement.
+    fronts_known: bool = True
+    wars_known: bool = True
 
     @classmethod
     def of(cls, state: GameState, target: str) -> Footprint:
@@ -44,6 +56,8 @@ class Footprint:
             divisions=sum(f.divisions_friendly for f in facing),
             at_war=any(w.against == target for w in state.wars),
             allied=any(target in w.allies for w in state.wars),
+            fronts_known=state.known("fronts"),
+            wars_known=state.known("wars"),
         )
 
 
@@ -95,19 +109,29 @@ class DirectiveTracker:
         was = item.before
         age = _days_between(item.raised_on, state.date)
         head = f"{item.directive} {item.target}, raised {age}"
+        # A part is compared only if it was known both then and now: an
+        # unknown side is an empty list, not a zero worth diffing against.
+        fronts_seen = was.fronts_known and now.fronts_known
+        wars_seen = was.wars_known and now.wars_known
+        unseen = [name for name, seen in (("fronts", fronts_seen), ("wars", wars_seen))
+                  if not seen]
         changes = []
-        if (was.fronts, was.divisions) != (now.fronts, now.divisions):
+        if fronts_seen and (was.fronts, was.divisions) != (now.fronts, now.divisions):
             changes.append(
                 f"divisions facing {item.target} {was.divisions} -> {now.divisions}"
                 f" on {now.fronts} front(s)"
             )
-        if was.at_war != now.at_war:
+        if wars_seen and was.at_war != now.at_war:
             changes.append("now at war" if now.at_war else "war ended")
-        if was.allied != now.allied:
+        if wars_seen and was.allied != now.allied:
             changes.append("now fighting on our side" if now.allied else "no longer allied")
+        caveat = f"{' and '.join(unseen)} unknown" if unseen else ""
         if not changes:
+            if unseen:
+                return f"{head}: effect not observable with this reader ({caveat})"
             return f"{head}: NO OBSERVABLE CHANGE"
-        return f"{head}: " + "; ".join(changes)
+        line = f"{head}: " + "; ".join(changes)
+        return f"{line} ({caveat})" if caveat else line
 
 
 def _days_between(start: str, end: str) -> str:
