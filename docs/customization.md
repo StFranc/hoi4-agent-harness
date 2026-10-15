@@ -41,7 +41,7 @@ you at run time.
 | Confirmation gate | `--allow-all` | let irreversible actions through |
 | Ask a person | `--confirm` | terminal prompt on each irreversible action: yes / no / always |
 | Live mode | `--live` | dry run is the default |
-| Actions per turn | `max_actions_per_turn` | |
+| Actions per turn | `max_actions_per_turn` | counted per turn across all tool rounds, for the model as well as the reflexes; a call past the cap is refused with `error_kind="budget"`. `note` and `advance_time` do not count |
 | Tool rounds per turn | `max_tool_rounds_per_turn` | how many times it can react to a rejection |
 | Error tolerance | `max_consecutive_llm_errors`, `HOI4_MAX_CONSECUTIVE_LLM_ERRORS` | consecutive provider failures before the run stops; a fatal error stops immediately regardless |
 

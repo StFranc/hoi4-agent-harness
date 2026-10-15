@@ -3,7 +3,9 @@
 Everything the agent can do to the world goes through here, which makes this the
 one place to enforce the rules that must not depend on the model behaving:
 validation, the confirmation gate on irreversible actions, and the per-turn
-action cap.
+action cap. The cap is applied by act_many() to the reflexes, and by the agent
+loop to the planner's calls, which arrive one act() at a time across several
+tool rounds; both refuse with ``error_kind="budget"`` (see over_budget()).
 """
 
 from __future__ import annotations
@@ -17,6 +19,11 @@ from .identifiers import IdentifierIndex
 from .observation import ObservationBuilder
 from .observation.directives import DirectiveTracker
 from .types import ActionCall, ActionResult, GameState, Observation
+
+#: Calls the per-turn action cap does not count: a note only writes to the
+#: journal, and advance_time hands the clock back -- the prompt asks for "up to
+#: N actions, then advance_time", and refusing it would not stop the turn.
+UNCAPPED_ACTIONS = frozenset({"note", "advance_time"})
 
 
 class HOI4Env:
@@ -202,6 +209,25 @@ class HOI4Env:
             )
         elif call.name == "clear_ai_directives":
             self.directives.clear()
+
+    def over_budget(self, call: ActionCall) -> ActionResult:
+        """The refusal for a call past the per-turn action cap. Nothing runs.
+
+        The planner's calls arrive one at a time, so the loop counts them across
+        the turn's rounds and hands each one past the cap this result instead of
+        passing it to act().
+        """
+        cap = self.config.max_actions_per_turn
+        return ActionResult(
+            ok=False,
+            action=call.name,
+            call_id=call.call_id,
+            message=(
+                f"The per-turn cap of {cap} actions is used up; '{call.name}' was not run. "
+                "Call advance_time to end the turn."
+            ),
+            error_kind="budget",
+        )
 
     def act_many(self, calls: list[ActionCall], date: str = "") -> list[ActionResult]:
         results: list[ActionResult] = []

@@ -1,3 +1,5 @@
+import json
+
 from hoi4_harness.actions import catalog
 from hoi4_harness.adapters.mock import MockAdapter
 from hoi4_harness.agent.llm.base import LLMResponse, ToolCall, Usage
@@ -161,3 +163,87 @@ def test_a_budget_downgrade_says_why_in_its_progress_line():
     loop.run(2)
     assert "reflex (budget: call ceiling reached (1))" in lines[1]
     assert "wake:" not in lines[1]
+
+
+def _build(call_id: str) -> ToolCall:
+    return ToolCall(call_id, "queue_construction",
+                    {"building": "civilian_factory", "state": "capital", "count": 1})
+
+
+def test_the_per_turn_action_cap_binds_the_planner_not_only_the_reflexes():
+    """#66: the cap lived only in act_many, which only the reflexes call. The
+    planner's calls went through env.act one by one and nothing counted them,
+    so a model could run rounds x calls-per-round actions in one turn. Notes
+    and advance_time are turn bookkeeping, not actions, and stay free."""
+    script = [
+        LLMResponse(
+            tool_calls=[_build("a1"), _build("a2"), ToolCall("n1", "note", {"text": "civs"}),
+                        _build("a3")],
+            stop_reason="tool_use",
+            usage=Usage(10, 10),
+        ),
+        LLMResponse(
+            tool_calls=[_build("b1"), _build("b2"), _build("b3"),
+                        ToolCall("n2", "note", {"text": "still civs"})],
+            stop_reason="tool_use",
+            usage=Usage(10, 10),
+        ),
+        LLMResponse(
+            tool_calls=[_build("c1"), ToolCall("t1", "advance_time", {"days": 7})],
+            stop_reason="tool_use",
+            usage=Usage(10, 10),
+        ),
+    ]
+    loop, env = make_loop(script=script, max_actions_per_turn=4, max_tool_rounds_per_turn=3)
+
+    applied: list[str] = []
+    real_apply = env.adapter.apply
+
+    def counting_apply(call):
+        applied.append(call.name)
+        return real_apply(call)
+
+    env.adapter.apply = counting_apply
+    results: list[dict] = []
+    real_write = loop.transcript.write
+
+    def capture(kind, **fields):
+        if kind == "actions":
+            results.extend(fields["results"])
+        return real_write(kind, **fields)
+
+    loop.transcript.write = capture
+    loop.run(1)
+
+    by_id = {r["call_id"]: json.loads(r["content"]) for r in results}
+    # Seven construction calls were sent; exactly four reached the game.
+    assert applied.count("queue_construction") == 4
+    assert [i for i in ("a1", "a2", "a3", "b1") if by_id[i]["ok"]] == ["a1", "a2", "a3", "b1"]
+    for refused in ("b2", "b3", "c1"):
+        assert by_id[refused]["ok"] is False
+        assert by_id[refused]["error"] == "budget"
+    # The notes were journalled and the clock was still handed back.
+    assert by_id["n1"]["ok"] and by_id["n2"]["ok"]
+    assert by_id["t1"]["ok"]
+    assert len(loop.memory.journal) == 2
+
+
+def test_the_cap_is_counted_per_turn_and_starts_again_on_the_next_wake():
+    from hoi4_harness.agent.policy import WakeDecision
+
+    def wake(advance_id):
+        return LLMResponse(
+            tool_calls=[_build(f"{advance_id}-{i}") for i in range(3)]
+            + [ToolCall(advance_id, "advance_time", {"days": 7})],
+            stop_reason="tool_use",
+            usage=Usage(10, 10),
+        )
+
+    loop, env = make_loop(script=[wake("t1"), wake("t2")], max_actions_per_turn=2)
+    loop.policy.should_wake = lambda *a, **k: WakeDecision(True, "test")
+    loop.run(2)
+    # Two builds and the hand-back on each wake; the second wake is not
+    # charged for what the first one spent.
+    assert loop.report.planner_calls == 2
+    assert loop.report.actions_ok == 2 * (2 + 1)
+    assert loop.report.actions_failed == 2 * 1

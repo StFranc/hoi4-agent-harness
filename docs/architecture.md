@@ -41,8 +41,11 @@ rejected, or unverified when the reader cannot see the proving field.
 **Env.** The rules that must not depend on the model behaving live here:
 schema validation, identifier checks against the playset (`identifiers.py`, when
 one is configured), the confirmation gate on irreversible actions, the per-turn
-action cap, the co-op handover queue (`handover.py`), and exception containment
-(an adapter fault becomes a failed action, not a dead run). It also keeps the
+action cap (applied by `act_many` to the reflexes; the planner's calls arrive one
+`act` at a time over several tool rounds, so the loop counts them across the turn
+and Env supplies the `budget` refusal), the co-op handover queue (`handover.py`),
+and exception containment (an adapter fault becomes a failed action, not a dead
+run). It also keeps the
 directive tracker, which diffs what each standing directive has visibly changed.
 
 **Policy.** The wake rule and the reflexes. See

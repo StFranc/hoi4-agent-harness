@@ -110,10 +110,10 @@ the transcript has them and dashes when it does not.
 
 | campaign, wake rules | phase | game days | wakes | wakes / month | brief mean (full / delta) | brief max | request: prefix + turn |
 |---|---|---|---|---|---|---|---|
-| peacetime, default | peace | 1,339 | 105 | 2.4 | 50 (133 / 37) | 151 | 1,531 + 184 |
-| peacetime, schedule only | peace | 1,346 | 75 | 1.7 | 56 (131 / 45) | 143 | 1,531 + 189 |
-| wartime, default | war | 854 | 66 | 2.4 | 70 (175 / 53) | 230 | 1,531 + 233 |
-| wartime, schedule + alarms | war | 854 | 49 | 1.7 | 77 (195 / 54) | 253 | 1,531 + 233 |
+| peacetime, default | peace | 1,339 | 105 | 2.4 | 50 (132 / 37) | 161 | 1,531 + 186 |
+| peacetime, schedule only | peace | 1,346 | 75 | 1.7 | 57 (131 / 46) | 139 | 1,531 + 193 |
+| wartime, default | war | 854 | 65 | 2.3 | 75 (190 / 51) | 253 | 1,531 + 240 |
+| wartime, schedule + alarms | war | 854 | 49 | 1.7 | 80 (194 / 54) | 253 | 1,531 + 239 |
 
 What that says:
 
@@ -123,9 +123,9 @@ What that says:
 - **1936–1939 is ~105 wakes, not ~190** — the estimate was ~1.8x high. At 1.75k
   input a wake that is ~185k input tokens for the campaign, ~160k of them
   cacheable, against the ~400k estimated.
-- **War did not compound.** The full brief grows by a third (133 → 175) and the
-  per-turn message by a quarter (184 → 233), because fronts are capped at three
-  lines. The wake rate is flat (2.4 → 2.4, and 1.7 → 1.7 with only the schedule
+- **War did not compound.** The full brief grows by under a half (132 → 190) and
+  the per-turn message by under a third (186 → 240), because fronts are capped at
+  three lines. The wake rate is flat (2.4 → 2.3, and 1.7 → 1.7 with only the schedule
   and the wartime alarms), because every wartime rule fires on the onset of its
   condition. In the schedule-and-alarms run the alarms account for 5 of 49
   wartime wakes: three critical events, the supply collapse in the October mud,
