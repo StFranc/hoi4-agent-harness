@@ -1,0 +1,2 @@
+human_ai
+fast_forward 1
