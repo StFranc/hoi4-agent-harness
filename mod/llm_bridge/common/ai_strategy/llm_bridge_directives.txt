@@ -27,7 +27,6 @@ llmb_defensive_posture = {
 	# Hold the line and ask for more units on the front rather than pushing.
 	ai_strategy = {
 		type = front_unit_request
-		tag = ROOT
 		value = 50
 	}
 	ai_strategy = {
@@ -45,7 +44,6 @@ llmb_offensive_posture = {
 	}
 	ai_strategy = {
 		type = front_unit_request
-		tag = ROOT
 		value = 100
 	}
 }
